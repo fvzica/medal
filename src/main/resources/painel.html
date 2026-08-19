@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GOL · Prestamista — SUPER PF1</title>
+<style>
+  :root{
+    --bb-azul:#0033a0; --bb-azul-esc:#002169; --bb-amarelo:#fcd200;
+    --verde:#0a7d34; --vermelho:#c62828; --cinza:#f4f6fa; --linha:#e3e8f0;
+    --txt:#1f2937; --txt2:#5b6472; --card:#ffffff; --sombra:0 1px 3px rgba(0,0,0,.08),0 1px 2px rgba(0,0,0,.06);
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:'Segoe UI',Roboto,Arial,sans-serif;background:var(--cinza);color:var(--txt);font-size:14px}
+  header{background:linear-gradient(90deg,var(--bb-azul-esc),var(--bb-azul));color:#fff;
+    padding:0 20px;height:60px;display:flex;align-items:center;gap:16px;box-shadow:var(--sombra);position:sticky;top:0;z-index:50}
+  .logo{width:38px;height:38px;background:var(--bb-amarelo);border-radius:8px;display:flex;align-items:center;
+    justify-content:center;font-weight:800;color:var(--bb-azul-esc);font-size:18px}
+  header h1{font-size:18px;font-weight:600;letter-spacing:.3px}
+  header .sub{font-size:12px;opacity:.85;font-weight:400}
+  header .spacer{flex:1}
+  #status{font-size:12px;display:flex;align-items:center;gap:8px}
+  .dot{width:9px;height:9px;border-radius:50%;background:#9aa4b2}
+  .dot.ok{background:#39d353;box-shadow:0 0 6px #39d353}
+  .dot.err{background:#ff5c5c;box-shadow:0 0 6px #ff5c5c}
+  .dot.load{background:var(--bb-amarelo);animation:pulse 1s infinite}
+  @keyframes pulse{50%{opacity:.3}}
+  .toolbar{background:var(--card);border-bottom:1px solid var(--linha);padding:12px 20px;
+    display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end;position:sticky;top:60px;z-index:40}
+  .campo{display:flex;flex-direction:column;gap:4px}
+  .campo label{font-size:11px;color:var(--txt2);font-weight:600;text-transform:uppercase;letter-spacing:.4px}
+  .campo input,.campo select{padding:8px 10px;border:1px solid var(--linha);border-radius:8px;font-size:14px;
+    background:#fff;min-width:120px;transition:.15s}
+  .campo input:focus,.campo select:focus{outline:none;border-color:var(--bb-azul);box-shadow:0 0 0 3px rgba(0,51,160,.12)}
+  .btn{padding:9px 16px;border:none;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;
+    display:inline-flex;align-items:center;gap:6px;transition:.15s}
+  .btn-primary{background:var(--bb-azul);color:#fff}
+  .btn-primary:hover{background:var(--bb-azul-esc)}
+  .btn-ghost{background:#eef1f6;color:var(--txt)}
+  .btn-ghost:hover{background:#e0e5ee}
+  .btn-exp{background:var(--verde);color:#fff}
+  .btn-exp:hover{filter:brightness(.92)}
+  .switch{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--txt2);cursor:pointer;user-select:none}
+  .switch input{width:38px;height:20px;appearance:none;background:#c7cedb;border-radius:20px;position:relative;cursor:pointer;transition:.2s}
+  .switch input:checked{background:var(--verde)}
+  .switch input::after{content:"";position:absolute;width:16px;height:16px;background:#fff;border-radius:50%;top:2px;left:2px;transition:.2s}
+  .switch input:checked::after{left:20px}
+  #refreshInfo{font-size:12px;color:var(--txt2);min-width:80px}
+  .busca{margin-left:auto}
+  .kpis{padding:16px 20px;display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px}
+  .kpi{background:var(--card);border-radius:12px;padding:14px 16px;box-shadow:var(--sombra);border-left:4px solid var(--bb-azul)}
+  .kpi.rs{border-left-color:#0033a0}.kpi.vol{border-left-color:#7b2ff7}
+  .kpi.qtd{border-left-color:#0a7d34}.kpi.riv{border-left-color:#e08600}
+  .kpi.cont{border-left-color:#0891b2}.kpi.pend{border-left-color:#64748b}
+  .kpi .t{font-size:11px;color:var(--txt2);font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px}
+  .kpi .total{font-size:24px;font-weight:700;line-height:1}
+  .kpi .vc{display:flex;justify-content:space-between;margin-top:8px;font-size:12px;color:var(--txt2)}
+  .kpi .vc b{display:block;font-size:13px;color:var(--txt);font-weight:600}
+  .pos{color:var(--verde)}.neg{color:var(--vermelho)}
+  .wrap{padding:0 20px 24px}
+  .tbl-card{background:var(--card);border-radius:12px;box-shadow:var(--sombra);overflow:hidden}
+  .tbl-head{padding:12px 16px;display:flex;align-items:center;gap:10px;border-bottom:1px solid var(--linha)}
+  .tbl-head h2{font-size:15px;font-weight:600}
+  .badge{background:#eef1f6;color:var(--txt2);font-size:12px;padding:3px 10px;border-radius:20px;font-weight:600}
+  .scroll{overflow:auto;max-height:calc(100vh - 400px)}
+  table{border-collapse:collapse;width:100%;font-size:13px;white-space:nowrap}
+  thead.g1 th{background:var(--bb-azul-esc);color:#fff;font-size:11px;text-transform:uppercase;letter-spacing:.4px;
+    padding:8px 10px;position:sticky;top:0;z-index:20;text-align:center;border-right:1px solid rgba(255,255,255,.12)}
+  thead.g2 th{background:var(--bb-azul);color:#fff;font-size:11px;padding:7px 10px;position:sticky;top:33px;z-index:19;
+    text-align:right;cursor:pointer;border-right:1px solid rgba(255,255,255,.12);font-weight:600}
+  thead.g2 th:hover{background:#0040c0}
+  thead.g2 th.txt{text-align:left}
+  tbody td{padding:7px 10px;border-bottom:1px solid var(--linha);text-align:right;font-variant-numeric:tabular-nums}
+  tbody td.txt{text-align:left}
+  tbody td.pref{font-weight:700;color:var(--bb-azul)}
+  tbody tr:nth-child(even){background:#fafbfd}
+  tbody tr:hover{background:#eef4ff}
+  tfoot td{padding:9px 10px;background:#f0f3f9;font-weight:700;border-top:2px solid var(--bb-azul);
+    text-align:right;position:sticky;bottom:0}
+  tfoot td.txt{text-align:left}
+  .col-sep{border-left:2px solid var(--linha)}
+  .msg{padding:40px;text-align:center;color:var(--txt2)}
+  .msg.err{color:var(--vermelho)}
+  .spin{width:36px;height:36px;border:3px solid var(--linha);border-top-color:var(--bb-azul);border-radius:50%;
+    animation:sp .8s linear infinite;margin:0 auto 12px}
+  @keyframes sp{to{transform:rotate(360deg)}}
+  footer{text-align:center;color:var(--txt2);font-size:12px;padding:16px}
+  body.tv .toolbar,body.tv header .sub{display:none}
+  body.tv .kpi .total{font-size:30px}
+</style>
+</head>
+<body>
+<header>
+  <div class="logo">BB</div>
+  <div>
+    <h1>GOL · Prestamista</h1>
+    <div class="sub">Visão de Jurisdição — atualização automática via API do GOL</div>
+  </div>
+  <div class="spacer"></div>
+  <div id="status"><span class="dot" id="dot"></span><span id="statusTxt">Pronto</span></div>
+</header>
+
+<div class="toolbar">
+  <div class="campo"><label>Produto</label>
+    <select id="produto" style="min-width:200px"><option value="">Carregando…</option></select>
+  </div>
+  <div class="campo"><label>Prefixo</label><input id="prefixo" value="9007" inputmode="numeric" size="8"></div>
+  <div class="campo"><label>Visão</label>
+    <select id="visao"><option value="jurisdicao">Jurisdição</option><option value="origem">Origem</option><option value="canais">Canais</option></select>
+  </div>
+  <div class="campo"><label>Nível</label>
+    <select id="nivel">
+      <option value="regional">Jurisdição (unidades)</option>
+      <option value="carteira">Carteiras do prefixo</option>
+    </select>
+  </div>
+  <button class="btn btn-primary" onclick="carregar()">↻ Atualizar</button>
+  <label class="switch"><input type="checkbox" id="auto"><span>Auto (1 min)</span></label>
+  <span id="refreshInfo"></span>
+  <button class="btn btn-exp" onclick="exportar('xlsx')">⬇ Excel</button>
+  <button class="btn btn-ghost" onclick="exportar('csv')">⬇ CSV</button>
+  <button class="btn btn-ghost" onclick="toggleTV()" title="Modo TV / tela cheia">📺 TV</button>
+  <div class="campo busca"><label>Buscar</label><input id="busca" placeholder="prefixo ou nome…" oninput="render()"></div>
+</div>
+
+<div class="kpis" id="kpis"></div>
+
+<div class="wrap">
+  <div class="tbl-card">
+    <div class="tbl-head">
+      <h2>Detalhamento por Jurisdição</h2>
+      <span class="badge" id="badgeLinhas">—</span>
+      <span class="badge" id="badgeAtual">—</span>
+    </div>
+    <div class="scroll">
+      <table id="tabela">
+        <thead class="g1" id="thG1"></thead>
+        <thead class="g2" id="thG2"></thead>
+        <tbody id="tb"></tbody>
+        <tfoot id="tf"></tfoot>
+      </table>
+    </div>
+    <div id="estado"></div>
+  </div>
+</div>
+
+<footer>SUPER PF1 · Ferramenta interna — dados do GOL. Prestamista é a soma das origens als + bbs + cdc + seg. Crédito Total = Crédito Pessoal + Consignado + Veículo + Demais (soma por Prefixo/Carteira).</footer>
+
+<script>
+const BASE = location.pathname.replace(/\/(painel|index\.html)?$/,'');
+let CHAVE='Prefixo', dados=null, ordem={col:null,dir:1}, timer=null, contador=null, PRODUTOS=[];
+const nf = new Intl.NumberFormat('pt-BR',{minimumFractionDigits:0,maximumFractionDigits:2});
+
+function setStatus(e,t){ document.getElementById('dot').className='dot '+(e||''); document.getElementById('statusTxt').textContent=t; }
+function fmt(v,col){ if(col==='Nome')return v||''; if(col===CHAVE)return v; const n=typeof v==='number'?v:parseFloat(v)||0; return nf.format(n); }
+function classeNum(v,col){ if(col==='Nome'||col===CHAVE)return ''; const n=typeof v==='number'?v:parseFloat(v)||0; if(col.endsWith('Total'))return n<0?'neg':(n>0?'pos':''); return ''; }
+
+function gruposDinamicos(linhas){
+  const chaveId = (linhas.length && ('Carteira' in linhas[0])) ? 'Carteira' : 'Prefixo';
+  CHAVE = chaveId;
+  const cols = linhas.length ? Object.keys(linhas[0]).filter(c=>c!==chaveId && c!=='Nome') : [];
+  const grupos=[{g:'Identificação', cols:[[chaveId,chaveId],['Nome','Nome']]}];
+  const buckets={}; const ordemB=[];
+  // conta quantas colunas compartilham cada familia "X Vendas/Cancel/Total"
+  const famCount={};
+  cols.forEach(c=>{const m=c.match(/^(.*)\s+(Vendas|Cancelamentos|Total)$/);if(m)famCount[m[1]]=(famCount[m[1]]||0)+1;});
+  cols.forEach(c=>{
+    let fam=c, sub=c;
+    const m=c.match(/^(.*)\s+(Vendas|Cancelamentos|Total)$/);
+    if(m && famCount[m[1]]>1){ fam=m[1]; sub=m[2]; }         // agrupa quando ha Vendas+Cancel+Total
+    else if(c.startsWith('Pendentes ')){ fam='Pendentes (Duplo Sim)'; sub=c.replace('Pendentes ',''); }
+    else if(c==='Contatos'){ fam='Contatos'; sub='Qtd'; }
+    else { fam=c; sub=c; }                                    // metrica unica: coluna propria
+    if(!buckets[fam]){ buckets[fam]=[]; ordemB.push(fam); }
+    buckets[fam].push([c,sub]);
+  });
+  ordemB.forEach(fam=>grupos.push({g:fam, cols:buckets[fam]}));
+  return grupos;
+}
+let GRUPOS=[];
+
+function montarCabecalho(){
+  let h1=''; GRUPOS.forEach(gr=>{h1+=`<th colspan="${gr.cols.length}">${gr.g}</th>`;});
+  document.getElementById('thG1').innerHTML='<tr>'+h1+'</tr>';
+  let h2=''; GRUPOS.forEach((gr,gi)=>{gr.cols.forEach((c,ci)=>{
+    const isTxt=(c[0]==='Nome'||c[0]===CHAVE); const sep=(ci===0&&gi>0)?' col-sep':'';
+    const arrow=ordem.col===c[0]?(ordem.dir>0?' ▲':' ▼'):'';
+    h2+=`<th class="${isTxt?'txt':''}${sep}" onclick="ordenar('${c[0]}')">${c[1]}${arrow}</th>`;});});
+  document.getElementById('thG2').innerHTML='<tr>'+h2+'</tr>';
+}
+function render(){
+  if(!dados)return;
+  const termo=(document.getElementById('busca').value||'').toLowerCase();
+  let linhas=dados.linhas.slice();
+  if(termo)linhas=linhas.filter(l=>String(l[CHAVE]).includes(termo)||String(l.Nome||'').toLowerCase().includes(termo));
+  if(ordem.col)linhas.sort((a,b)=>{let x=a[ordem.col],y=b[ordem.col];if(ordem.col==='Nome'){x=x||'';y=y||'';return x.localeCompare(y)*ordem.dir;}return((parseFloat(x)||0)-(parseFloat(y)||0))*ordem.dir;});
+  let body='';
+  linhas.forEach(l=>{let tds='';GRUPOS.forEach((gr,gi)=>{gr.cols.forEach((c,ci)=>{const col=c[0],v=l[col];const sep=(ci===0&&gi>0)?' col-sep':'';const cls=col==='Nome'?'txt':(col===CHAVE?'pref':'');tds+=`<td class="${cls}${sep} ${classeNum(v,col)}">${fmt(v,col)}</td>`;});});body+='<tr>'+tds+'</tr>';});
+  document.getElementById('tb').innerHTML=body;
+  const t=dados.totais||{};let tf='';
+  GRUPOS.forEach((gr,gi)=>{gr.cols.forEach((c,ci)=>{const col=c[0];const sep=(ci===0&&gi>0)?' col-sep':'';
+    if(col===CHAVE)tf+=`<td class="txt${sep}">TOTAL</td>`;
+    else if(col==='Nome')tf+=`<td class="txt">${linhas.length} unid.</td>`;
+    else tf+=`<td class="${sep} ${classeNum(t[col],col)}">${fmt(t[col]??0,col)}</td>`;});});
+  document.getElementById('tf').innerHTML='<tr>'+tf+'</tr>';
+  document.getElementById('badgeLinhas').textContent=linhas.length+' unidades';
+}
+function renderKPIs(){
+  const t=dados.totais||{};
+  const cores=['rs','vol','qtd','riv','cont','pend'];
+  const chavesT=Object.keys(t);
+  const totais=chavesT.filter(c=>c.endsWith(' Total'));
+  const entradas=chavesT.filter(c=>c.endsWith(' Vendas')||c==='Desembolso');
+  let escolhidas = totais.length ? totais.slice(0,4) : entradas.slice(0,4);
+  chavesT.filter(c=>c.includes('Prestamista')).forEach(c=>{ if(!escolhidas.includes(c)&&escolhidas.length<6) escolhidas.push(c); });
+  if('Contatos' in t && escolhidas.length<6) escolhidas.push('Contatos');
+  chavesT.filter(c=>c.startsWith('Pendentes ')).slice(0,1).forEach(c=>{ if(escolhidas.length<6) escolhidas.push(c); });
+  let html='';
+  escolhidas.forEach((col,i)=>{
+    const cls=cores[i%cores.length];
+    const val=t[col]||0; const cl=(col.endsWith('Total')&&val<0)?'neg':(col.endsWith('Total')&&val>0?'pos':'');
+    const base=col.replace(/ Total$/,'');
+    const vend=t[base+' Vendas'], canc=t[base+' Cancelamentos'];
+    if(col.endsWith('Total') && (vend!==undefined||canc!==undefined)){
+      html+=`<div class="kpi ${cls}"><div class="t">${base}</div><div class="total ${cl}">${nf.format(val)}</div>
+        <div class="vc"><span>Entradas<b class="pos">${nf.format(vend||0)}</b></span><span>Saídas<b class="neg">${nf.format(canc||0)}</b></span></div></div>`;
+    }else{
+      html+=`<div class="kpi ${cls}"><div class="t">${col}</div><div class="total ${cl}">${nf.format(val)}</div></div>`;
+    }
+  });
+  document.getElementById('kpis').innerHTML=html;
+}
+function urlAtual(exportFmt){
+  const prod=document.getElementById('produto').value;
+  const prefixo=document.getElementById('prefixo').value.trim()||'9007';
+  const visao=document.getElementById('visao').value, nivel=document.getElementById('nivel').value;
+  if(prod==='__unificado__'){
+    const base = exportFmt ? (BASE+'/export/unificado/') : (BASE+'/unificado/');
+    return base+encodeURIComponent(prefixo)+`?visao=${visao}`+(exportFmt?`&formato=${exportFmt}`:'');
+  }
+  const base = exportFmt ? (BASE+'/export/produto/'+prod+'/') : (BASE+'/produto/'+prod+'/');
+  return base+encodeURIComponent(prefixo)+`?visao=${visao}&nivel=${nivel}`+(exportFmt?`&formato=${exportFmt}`:'');
+}
+async function carregar(){
+  const prod=document.getElementById('produto').value;
+  if(!prod) return;
+  const unif = prod==='__unificado__';
+  document.getElementById('nivel').disabled = unif;
+  setStatus('load','Carregando…');
+  document.getElementById('estado').innerHTML='<div class="msg"><div class="spin"></div>Consultando o GOL…</div>';
+  document.getElementById('tb').innerHTML='';document.getElementById('tf').innerHTML='';
+  try{
+    const r=await fetch(urlAtual(null),{credentials:'include'});
+    if(!r.ok)throw new Error('HTTP '+r.status);
+    dados=await r.json();
+    if(!dados.linhas||!dados.linhas.length)throw new Error('Sem dados retornados');
+    GRUPOS=gruposDinamicos(dados.linhas);
+    document.getElementById('estado').innerHTML='';
+    montarCabecalho();renderKPIs();render();
+    const agora=new Date().toLocaleTimeString('pt-BR');
+    document.getElementById('badgeAtual').textContent='Atualizado '+agora;
+    const lbl = unif ? 'Visão Unificada' : (dados.label||prod);
+    document.querySelector('.tbl-head h2').textContent = 'Detalhamento · '+lbl;
+    setStatus('ok','OK · '+agora);
+  }catch(e){
+    dados=null;
+    document.getElementById('estado').innerHTML='<div class="msg err">⚠ Não foi possível carregar: '+e.message+'<br><small>Verifique se você está logado no super-pf1 e se a sessão do GOL está ativa.</small></div>';
+    document.getElementById('kpis').innerHTML='';setStatus('err','Erro');
+  }
+}
+function exportar(fmt){ window.open(urlAtual(fmt),'_blank'); }
+function ordenar(col){ if(ordem.col===col)ordem.dir*=-1;else{ordem.col=col;ordem.dir=1;} montarCabecalho();render(); }
+function toggleTV(){ document.body.classList.toggle('tv'); if(document.body.classList.contains('tv')&&document.documentElement.requestFullscreen)document.documentElement.requestFullscreen().catch(()=>{}); }
+async function carregarProdutos(){
+  try{
+    const r=await fetch(BASE+'/produtos',{credentials:'include'});
+    const j=await r.json(); PRODUTOS=j.produtos||[];
+    const sel=document.getElementById('produto');
+    const porGrupo={}; const ordemG=[];
+    PRODUTOS.forEach(p=>{const g=p.grupo||'Outros'; if(!porGrupo[g]){porGrupo[g]=[];ordemG.push(g);} porGrupo[g].push(p);});
+    let html='<option value="__unificado__">★ Visão Unificada (todos)</option>';
+    ordemG.forEach(g=>{ html+=`<optgroup label="${g}">`; porGrupo[g].forEach(p=>{html+=`<option value="${p.chave}">${p.label}</option>`;}); html+='</optgroup>'; });
+    sel.innerHTML=html;
+    if(PRODUTOS.some(p=>p.chave==='prestamista')) sel.value='prestamista';
+    else if(PRODUTOS.length) sel.value=PRODUTOS[0].chave;
+  }catch(e){ document.getElementById('produto').innerHTML='<option value="prestamista">Prestamista</option>'; }
+}
+document.getElementById('auto').addEventListener('change',e=>{
+  clearInterval(timer);clearInterval(contador);
+  if(e.target.checked){let seg=60;document.getElementById('refreshInfo').textContent='próx: 60s';
+    contador=setInterval(()=>{seg--;if(seg<0)seg=60;document.getElementById('refreshInfo').textContent='próx: '+seg+'s';},1000);
+    timer=setInterval(()=>{carregar();},60000);
+  }else document.getElementById('refreshInfo').textContent='';
+});
+document.getElementById('produto').addEventListener('change',carregar);
+document.getElementById('prefixo').addEventListener('keydown',e=>{if(e.key==='Enter')carregar();});
+(async function(){ await carregarProdutos(); carregar(); })();
+
+</script>
+</body>
+</html>

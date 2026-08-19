@@ -1,0 +1,1589 @@
+{
+  "credito_total": {
+    "label": "Crédito Total",
+    "grupo": "Crédito PF",
+    "tipo": "composto",
+    "componentes": [
+      "credito_pessoal",
+      "credito_consignado",
+      "credito_veiculo",
+      "credito_demais"
+    ],
+    "agregacao": "soma_por_chave",
+    "chaves_por_nivel": {
+      "regional": "Prefixo",
+      "carteira": "Carteira"
+    },
+    "metricas_somadas": [
+      "Desembolso",
+      "RIV",
+      "Quantidade",
+      "Com Prestamista",
+      "Operações com Prestamista",
+      "Contatos"
+    ]
+  },
+  "credito_pessoal": {
+    "label": "Crédito Pessoal",
+    "grupo": "Crédito PF",
+    "blocos": "{1002}",
+    "dimensoes": [
+      {
+        "rotulo": "Desembolso",
+        "campo": "valor"
+      },
+      {
+        "rotulo": "RIV",
+        "campo": "valor_qualificado"
+      },
+      {
+        "rotulo": "Quantidade",
+        "campo": "qtde"
+      },
+      {
+        "rotulo": "Com Prestamista",
+        "campo": "qtde_com_prestamista"
+      }
+    ],
+    "contatos_campo": "qtde",
+    "metrica_vendas_rotulo": "Desembolso",
+    "vendas": [
+      "web~gol2~cop~relacionamento~desembolso-%s"
+    ],
+    "cancelamentos": [],
+    "pendentes": [],
+    "contatos": "web~gol2~cdc~credito~relacionamento~%s",
+    "prestamista_operacoes": {
+      "topico": "web~gol2~cdc~prestamista~relacionamento~vendas-%s",
+      "campo": "qtde",
+      "rotulo": "Operações com Prestamista"
+    }
+  },
+  "credito_consignado": {
+    "label": "Crédito Consignado",
+    "grupo": "Crédito PF",
+    "blocos": "{1001}",
+    "dimensoes": [
+      {
+        "rotulo": "Desembolso",
+        "campo": "valor"
+      },
+      {
+        "rotulo": "RIV",
+        "campo": "valor_qualificado"
+      },
+      {
+        "rotulo": "Quantidade",
+        "campo": "qtde"
+      },
+      {
+        "rotulo": "Com Prestamista",
+        "campo": "qtde_com_prestamista"
+      }
+    ],
+    "contatos_campo": "qtde",
+    "metrica_vendas_rotulo": "Desembolso",
+    "vendas": [
+      "web~gol2~cop~relacionamento~desembolso-%s"
+    ],
+    "cancelamentos": [],
+    "pendentes": [],
+    "contatos": "web~gol2~cdc~credito~relacionamento~%s",
+    "prestamista_operacoes": {
+      "topico": "web~gol2~cdc~prestamista~relacionamento~vendas-%s",
+      "campo": "qtde",
+      "rotulo": "Operações com Prestamista"
+    }
+  },
+  "credito_veiculo": {
+    "label": "Crédito Veículo",
+    "grupo": "Crédito PF",
+    "blocos": "{1003}",
+    "dimensoes": [
+      {
+        "rotulo": "Desembolso",
+        "campo": "valor"
+      },
+      {
+        "rotulo": "RIV",
+        "campo": "valor_qualificado"
+      },
+      {
+        "rotulo": "Quantidade",
+        "campo": "qtde"
+      },
+      {
+        "rotulo": "Com Prestamista",
+        "campo": "qtde_com_prestamista"
+      }
+    ],
+    "contatos_campo": "qtde",
+    "metrica_vendas_rotulo": "Desembolso",
+    "vendas": [
+      "web~gol2~cop~relacionamento~desembolso-%s"
+    ],
+    "cancelamentos": [],
+    "pendentes": [],
+    "contatos": "web~gol2~cdc~credito~relacionamento~%s",
+    "prestamista_operacoes": {
+      "topico": "web~gol2~cdc~prestamista~relacionamento~vendas-%s",
+      "campo": "qtde",
+      "rotulo": "Operações com Prestamista"
+    }
+  },
+  "credito_demais": {
+    "label": "Crédito Demais",
+    "grupo": "Crédito PF",
+    "blocos": "{1004}",
+    "dimensoes": [
+      {
+        "rotulo": "Desembolso",
+        "campo": "valor"
+      },
+      {
+        "rotulo": "RIV",
+        "campo": "valor_qualificado"
+      },
+      {
+        "rotulo": "Quantidade",
+        "campo": "qtde"
+      },
+      {
+        "rotulo": "Com Prestamista",
+        "campo": "qtde_com_prestamista"
+      }
+    ],
+    "contatos_campo": "qtde",
+    "metrica_vendas_rotulo": "Desembolso",
+    "vendas": [
+      "web~gol2~cop~relacionamento~desembolso-%s"
+    ],
+    "cancelamentos": [],
+    "pendentes": [],
+    "contatos": "web~gol2~cdc~credito~relacionamento~%s",
+    "prestamista_operacoes": {
+      "topico": "web~gol2~cdc~prestamista~relacionamento~vendas-%s",
+      "campo": "qtde",
+      "rotulo": "Operações com Prestamista"
+    }
+  },
+  "credito_agro_total": {
+    "label": "Crédito Agro Total",
+    "grupo": "Crédito Agro",
+    "blocos": "{5001}",
+    "dimensoes": [
+      {
+        "rotulo": "Desembolso",
+        "campo": "valor"
+      },
+      {
+        "rotulo": "RIV",
+        "campo": "riv"
+      }
+    ],
+    "contatos_campo": "qtde",
+    "metrica_vendas_rotulo": "Desembolso",
+    "vendas": [
+      "web~gol2~cop~relacionamento~desembolso-%s",
+      "web~gol2~npr~relacionamento~desembolso-%s",
+      "web~gol2~cdr~relacionamento~desembolso-%s"
+    ],
+    "cancelamentos": [
+      "web~gol2~cop~relacionamento~liquidacao-antecipada-%s",
+      "web~gol2~cop~relacionamento~liquidacao-prevista-dia-%s",
+      "web~gol2~cdr~relacionamento~liquidacao-prevista-%s"
+    ],
+    "pendentes": [],
+    "contatos": "web~gol2~bic~relacionamento~%s"
+  },
+  "credito_agro_familiar": {
+    "label": "Crédito Agro Familiar",
+    "grupo": "Crédito Agro",
+    "blocos": "{5100}",
+    "dimensoes": [
+      {
+        "rotulo": "Desembolso",
+        "campo": "valor"
+      },
+      {
+        "rotulo": "RIV",
+        "campo": "riv"
+      }
+    ],
+    "contatos_campo": "qtde",
+    "metrica_vendas_rotulo": "Desembolso",
+    "vendas": [
+      "web~gol2~cop~relacionamento~desembolso-%s"
+    ],
+    "cancelamentos": [
+      "web~gol2~cop~relacionamento~liquidacao-antecipada-%s",
+      "web~gol2~cop~relacionamento~liquidacao-prevista-dia-%s"
+    ],
+    "pendentes": [],
+    "contatos": "web~gol2~bic~relacionamento~%s"
+  },
+  "credito_agro_empresarial": {
+    "label": "Crédito Agro Empresarial",
+    "grupo": "Crédito Agro",
+    "blocos": "{5000}",
+    "dimensoes": [
+      {
+        "rotulo": "Desembolso",
+        "campo": "valor"
+      },
+      {
+        "rotulo": "RIV",
+        "campo": "riv"
+      }
+    ],
+    "contatos_campo": "qtde",
+    "metrica_vendas_rotulo": "Desembolso",
+    "vendas": [
+      "web~gol2~cop~relacionamento~desembolso-%s",
+      "web~gol2~cdr~relacionamento~desembolso-%s",
+      "web~gol2~npr~relacionamento~desembolso-%s"
+    ],
+    "cancelamentos": [
+      "web~gol2~cop~relacionamento~liquidacao-antecipada-%s",
+      "web~gol2~cop~relacionamento~liquidacao-prevista-dia-%s",
+      "web~gol2~cdr~relacionamento~liquidacao-prevista-%s"
+    ],
+    "pendentes": [],
+    "contatos": "web~gol2~bic~relacionamento~%s"
+  },
+  "bb_regulariza_agro": {
+    "label": "BB Regulariza Agro",
+    "grupo": "Crédito Agro",
+    "blocos": "{5200}",
+    "dimensoes": [
+      {
+        "rotulo": "Desembolso",
+        "campo": "valor"
+      },
+      {
+        "rotulo": "RIV",
+        "campo": "riv"
+      }
+    ],
+    "contatos_campo": "qtde",
+    "vendas": [
+      {
+        "topico": "web~gol2~swp~relacionamento~%s",
+        "blocos": "{5101}"
+      }
+    ],
+    "cancelamentos": [
+      "web~gol2~cop~relacionamento~liquidacao-prevista-dia-%s"
+    ],
+    "pendentes": [],
+    "contatos": "web~gol2~bic~relacionamento~%s",
+    "metrica_vendas_rotulo": "Regularizações"
+  },
+  "credito_giro_agro": {
+    "label": "Crédito Giro Agro",
+    "grupo": "Crédito Agro",
+    "blocos": "{5001}",
+    "dimensoes": [
+      {
+        "rotulo": "Desembolso",
+        "campo": "valor"
+      },
+      {
+        "rotulo": "RIV",
+        "campo": "riv"
+      }
+    ],
+    "contatos_campo": "qtde",
+    "metrica_vendas_rotulo": "Desembolso",
+    "vendas": [
+      "web~gol2~cop~relacionamento~desembolso-%s"
+    ],
+    "cancelamentos": [
+      "web~gol2~cop~relacionamento~liquidacao-antecipada-%s",
+      "web~gol2~cop~relacionamento~liquidacao-prevista-dia-%s"
+    ],
+    "pendentes": [],
+    "contatos": "web~gol2~bic~relacionamento~%s"
+  },
+  "credito_comercializacao_agro": {
+    "label": "Crédito Comercialização Agro",
+    "grupo": "Crédito Agro",
+    "blocos": "{5003}",
+    "dimensoes": [
+      {
+        "rotulo": "Desembolso",
+        "campo": "valor"
+      },
+      {
+        "rotulo": "RIV",
+        "campo": "riv"
+      }
+    ],
+    "contatos_campo": "qtde",
+    "metrica_vendas_rotulo": "Desembolso",
+    "vendas": [
+      "web~gol2~cop~relacionamento~desembolso-%s",
+      "web~gol2~npr~relacionamento~desembolso-%s"
+    ],
+    "cancelamentos": [
+      "web~gol2~cop~relacionamento~liquidacao-antecipada-%s",
+      "web~gol2~cop~relacionamento~liquidacao-prevista-dia-%s"
+    ],
+    "pendentes": [],
+    "contatos": "web~gol2~bic~relacionamento~%s"
+  },
+  "credito_cpr_agro": {
+    "label": "Crédito CPR Agro",
+    "grupo": "Crédito Agro",
+    "blocos": "{5004}",
+    "dimensoes": [
+      {
+        "rotulo": "Desembolso",
+        "campo": "valor"
+      },
+      {
+        "rotulo": "RIV",
+        "campo": "riv"
+      }
+    ],
+    "contatos_campo": "qtde",
+    "metrica_vendas_rotulo": "Desembolso",
+    "vendas": [
+      "web~gol2~cdr~relacionamento~desembolso-%s"
+    ],
+    "cancelamentos": [
+      "web~gol2~cdr~relacionamento~liquidacao-prevista-%s"
+    ],
+    "pendentes": [],
+    "contatos": "web~gol2~bic~relacionamento~%s"
+  },
+  "credito_custeio_agro": {
+    "label": "Crédito Custeio Agro",
+    "grupo": "Crédito Agro",
+    "blocos": "{5005}",
+    "dimensoes": [
+      {
+        "rotulo": "Desembolso",
+        "campo": "valor"
+      },
+      {
+        "rotulo": "RIV",
+        "campo": "riv"
+      }
+    ],
+    "contatos_campo": "qtde",
+    "metrica_vendas_rotulo": "Desembolso",
+    "vendas": [
+      "web~gol2~cop~relacionamento~desembolso-%s"
+    ],
+    "cancelamentos": [
+      "web~gol2~cop~relacionamento~liquidacao-antecipada-%s",
+      "web~gol2~cop~relacionamento~liquidacao-prevista-dia-%s"
+    ],
+    "pendentes": [],
+    "contatos": "web~gol2~bic~relacionamento~%s"
+  },
+  "credito_investimento_agro": {
+    "label": "Crédito Investimento Agro",
+    "grupo": "Crédito Agro",
+    "blocos": "{5005}",
+    "dimensoes": [
+      {
+        "rotulo": "Desembolso",
+        "campo": "valor"
+      },
+      {
+        "rotulo": "RIV",
+        "campo": "riv"
+      }
+    ],
+    "contatos_campo": "qtde",
+    "metrica_vendas_rotulo": "Desembolso",
+    "vendas": [
+      "web~gol2~cop~relacionamento~desembolso-%s"
+    ],
+    "cancelamentos": [
+      "web~gol2~cop~relacionamento~liquidacao-antecipada-%s",
+      "web~gol2~cop~relacionamento~liquidacao-prevista-dia-%s"
+    ],
+    "pendentes": [],
+    "contatos": "web~gol2~bic~relacionamento~%s"
+  },
+  "seguridade_total": {
+    "label": "Seguridade Total",
+    "grupo": "Seguridade",
+    "blocos": "{3000,3010,3011,3012,3013,3020,3021,3030,3031,3032,3040,3041,3050,3060,3071,3072,3900}",
+    "dimensoes": [
+      {
+        "rotulo": "RS",
+        "campo": "rs"
+      },
+      {
+        "rotulo": "Volume",
+        "campo": "valor"
+      },
+      {
+        "rotulo": "Quantidade",
+        "campo": "qtde"
+      },
+      {
+        "rotulo": "RIV",
+        "campo": "riv"
+      }
+    ],
+    "contatos_campo": "qtde",
+    "vendas": [
+      {
+        "topico": "web~gol2~bpr~seguridade~relacionamento~vendas-%s",
+        "blocos": "{3040,3041}"
+      },
+      {
+        "topico": "web~gol2~otc~relacionamento~%s",
+        "blocos": "{3071,3072}"
+      },
+      {
+        "topico": "web~gol2~als~relacionamento~vendas-%s",
+        "blocos": "{3030,3031,3032,3010,3011,3012,3013,3021,3020,3060}"
+      },
+      {
+        "topico": "web~gol2~bbs~relacionamento~vendas-%s",
+        "blocos": "{3030,3031,3032,3012,3013,3021,3020,3060}"
+      },
+      {
+        "topico": "web~gol2~cdc~prestamista~relacionamento~vendas-%s",
+        "blocos": "{3030,3031}"
+      },
+      {
+        "topico": "web~gol2~seg~relacionamento~vendas-%s",
+        "blocos": "{3030,3031,3032,3010,3011,3012,3013,3021,3020,3060,3900}"
+      },
+      {
+        "topico": "web~gol2~svl~relacionamento~vendas-%s",
+        "blocos": "{3000}"
+      },
+      {
+        "topico": "web~gol2~bss~relacionamento~vendas-%s",
+        "blocos": "{3050}"
+      }
+    ],
+    "cancelamentos": [
+      {
+        "topico": "web~gol2~als~relacionamento~cancelamentos-%s",
+        "blocos": "{3030,3031,3032,3010,3011,3012,3013,3021,3020,3060}"
+      },
+      {
+        "topico": "web~gol2~seg~relacionamento~cancelamentos-%s",
+        "blocos": "{3030,3031,3032,3010,3011,3012,3013,3021,3020,3060,3900}"
+      },
+      {
+        "topico": "web~gol2~svl~relacionamento~cancelamentos-%s",
+        "blocos": "{3000}"
+      }
+    ],
+    "pendentes": [
+      {
+        "topico": "web~gol2~bpr~seguridade~relacionamento~pnd-vendas-%s",
+        "blocos": "{3040,3041}"
+      },
+      {
+        "topico": "web~gol2~otc~relacionamento~pnd-vendas-%s",
+        "blocos": "{3071,3072}"
+      },
+      {
+        "topico": "web~gol2~als~relacionamento~pnd-vendas-%s",
+        "blocos": "{3030,3031,3032,3010,3011,3012,3013,3021,3020,3060}"
+      },
+      {
+        "topico": "web~gol2~svl~relacionamento~pnd-vendas-%s",
+        "blocos": "{3000}"
+      }
+    ],
+    "contatos": {
+      "topico": "web~gol2~bic~relacionamento~%s",
+      "blocos": "{3040,3071,3072,3030,3031,3032,3010,3011,3012,3013,3021,3020,3000,3060,3050}"
+    }
+  },
+  "prestamista": {
+    "label": "Prestamista",
+    "grupo": "Seguridade",
+    "blocos": "{3030,3031}",
+    "dimensoes": [
+      {
+        "rotulo": "RS",
+        "campo": "rs"
+      },
+      {
+        "rotulo": "Volume",
+        "campo": "valor"
+      },
+      {
+        "rotulo": "Quantidade",
+        "campo": "qtde"
+      },
+      {
+        "rotulo": "RIV",
+        "campo": "riv"
+      }
+    ],
+    "contatos_campo": "qtde",
+    "vendas": [
+      "web~gol2~als~relacionamento~vendas-%s",
+      "web~gol2~bbs~relacionamento~vendas-%s",
+      "web~gol2~cdc~prestamista~relacionamento~vendas-%s",
+      "web~gol2~seg~relacionamento~vendas-%s"
+    ],
+    "cancelamentos": [
+      "web~gol2~als~relacionamento~cancelamentos-%s",
+      "web~gol2~seg~relacionamento~cancelamentos-%s"
+    ],
+    "pendentes": [
+      "web~gol2~als~relacionamento~pnd-vendas-%s"
+    ],
+    "contatos": "web~gol2~bic~relacionamento~%s"
+  },
+  "consorcio_protegido": {
+    "label": "Consórcio Protegido",
+    "grupo": "Seguridade",
+    "blocos": "{3032}",
+    "dimensoes": [
+      {
+        "rotulo": "RS",
+        "campo": "rs"
+      },
+      {
+        "rotulo": "Volume",
+        "campo": "valor"
+      },
+      {
+        "rotulo": "Quantidade",
+        "campo": "qtde"
+      },
+      {
+        "rotulo": "RIV",
+        "campo": "riv"
+      }
+    ],
+    "contatos_campo": "qtde",
+    "vendas": [
+      "web~gol2~als~relacionamento~vendas-%s",
+      "web~gol2~bbs~relacionamento~vendas-%s",
+      "web~gol2~seg~relacionamento~vendas-%s"
+    ],
+    "cancelamentos": [
+      "web~gol2~als~relacionamento~cancelamentos-%s",
+      "web~gol2~seg~relacionamento~cancelamentos-%s"
+    ],
+    "pendentes": [
+      "web~gol2~als~relacionamento~pnd-vendas-%s"
+    ],
+    "contatos": "web~gol2~bic~relacionamento~%s"
+  },
+  "vida_total": {
+    "label": "Vida Total",
+    "grupo": "Seguridade",
+    "blocos": "{3010,3011}",
+    "dimensoes": [
+      {
+        "rotulo": "RS",
+        "campo": "rs"
+      },
+      {
+        "rotulo": "Volume",
+        "campo": "valor"
+      },
+      {
+        "rotulo": "Quantidade",
+        "campo": "qtde"
+      },
+      {
+        "rotulo": "RIV",
+        "campo": "riv"
+      }
+    ],
+    "contatos_campo": "qtde",
+    "vendas": [
+      "web~gol2~als~relacionamento~vendas-%s",
+      "web~gol2~seg~relacionamento~vendas-%s"
+    ],
+    "cancelamentos": [
+      "web~gol2~als~relacionamento~cancelamentos-%s",
+      "web~gol2~seg~relacionamento~cancelamentos-%s"
+    ],
+    "pendentes": [
+      "web~gol2~als~relacionamento~pnd-vendas-%s"
+    ],
+    "contatos": "web~gol2~bic~relacionamento~%s"
+  },
+  "vida_mensal": {
+    "label": "Vida Mensal",
+    "grupo": "Seguridade",
+    "blocos": "{3010}",
+    "dimensoes": [
+      {
+        "rotulo": "RS",
+        "campo": "rs"
+      },
+      {
+        "rotulo": "Volume",
+        "campo": "valor"
+      },
+      {
+        "rotulo": "Quantidade",
+        "campo": "qtde"
+      },
+      {
+        "rotulo": "RIV",
+        "campo": "riv"
+      }
+    ],
+    "contatos_campo": "qtde",
+    "vendas": [
+      "web~gol2~als~relacionamento~vendas-%s",
+      "web~gol2~seg~relacionamento~vendas-%s"
+    ],
+    "cancelamentos": [
+      "web~gol2~als~relacionamento~cancelamentos-%s",
+      "web~gol2~seg~relacionamento~cancelamentos-%s"
+    ],
+    "pendentes": [
+      "web~gol2~als~relacionamento~pnd-vendas-%s"
+    ],
+    "contatos": "web~gol2~bic~relacionamento~%s"
+  },
+  "vida_pu": {
+    "label": "Vida PU",
+    "grupo": "Seguridade",
+    "blocos": "{3011}",
+    "dimensoes": [
+      {
+        "rotulo": "RS",
+        "campo": "rs"
+      },
+      {
+        "rotulo": "Volume",
+        "campo": "valor"
+      },
+      {
+        "rotulo": "Quantidade",
+        "campo": "qtde"
+      },
+      {
+        "rotulo": "RIV",
+        "campo": "riv"
+      }
+    ],
+    "contatos_campo": "qtde",
+    "vendas": [
+      "web~gol2~als~relacionamento~vendas-%s",
+      "web~gol2~seg~relacionamento~vendas-%s"
+    ],
+    "cancelamentos": [
+      "web~gol2~als~relacionamento~cancelamentos-%s",
+      "web~gol2~seg~relacionamento~cancelamentos-%s"
+    ],
+    "pendentes": [
+      "web~gol2~als~relacionamento~pnd-vendas-%s"
+    ],
+    "contatos": "web~gol2~bic~relacionamento~%s"
+  },
+  "vidinha_bb_protecao": {
+    "label": "Vidinha e BB Proteção",
+    "grupo": "Seguridade",
+    "blocos": "{3012,3013}",
+    "dimensoes": [
+      {
+        "rotulo": "RS",
+        "campo": "rs"
+      },
+      {
+        "rotulo": "Volume",
+        "campo": "valor"
+      },
+      {
+        "rotulo": "Quantidade",
+        "campo": "qtde"
+      },
+      {
+        "rotulo": "RIV",
+        "campo": "riv"
+      }
+    ],
+    "contatos_campo": "qtde",
+    "vendas": [
+      "web~gol2~als~relacionamento~vendas-%s",
+      "web~gol2~bbs~relacionamento~vendas-%s",
+      "web~gol2~seg~relacionamento~vendas-%s"
+    ],
+    "cancelamentos": [
+      "web~gol2~als~relacionamento~cancelamentos-%s",
+      "web~gol2~seg~relacionamento~cancelamentos-%s"
+    ],
+    "pendentes": [
+      "web~gol2~als~relacionamento~pnd-vendas-%s"
+    ],
+    "contatos": "web~gol2~bic~relacionamento~%s"
+  },
+  "residencial": {
+    "label": "Residencial",
+    "grupo": "Seguridade",
+    "blocos": "{3021}",
+    "dimensoes": [
+      {
+        "rotulo": "RS",
+        "campo": "rs"
+      },
+      {
+        "rotulo": "Volume",
+        "campo": "valor"
+      },
+      {
+        "rotulo": "Quantidade",
+        "campo": "qtde"
+      },
+      {
+        "rotulo": "RIV",
+        "campo": "riv"
+      }
+    ],
+    "contatos_campo": "qtde",
+    "vendas": [
+      "web~gol2~als~relacionamento~vendas-%s",
+      "web~gol2~bbs~relacionamento~vendas-%s",
+      "web~gol2~seg~relacionamento~vendas-%s"
+    ],
+    "cancelamentos": [
+      "web~gol2~als~relacionamento~cancelamentos-%s",
+      "web~gol2~seg~relacionamento~cancelamentos-%s"
+    ],
+    "pendentes": [
+      "web~gol2~als~relacionamento~pnd-vendas-%s"
+    ],
+    "contatos": "web~gol2~bic~relacionamento~%s"
+  },
+  "seguro_patrimonio": {
+    "label": "Seguro Patrimônio",
+    "grupo": "Seguridade",
+    "blocos": "{3020}",
+    "dimensoes": [
+      {
+        "rotulo": "RS",
+        "campo": "rs"
+      },
+      {
+        "rotulo": "Volume",
+        "campo": "valor"
+      },
+      {
+        "rotulo": "Quantidade",
+        "campo": "qtde"
+      },
+      {
+        "rotulo": "RIV",
+        "campo": "riv"
+      }
+    ],
+    "contatos_campo": "qtde",
+    "vendas": [
+      "web~gol2~als~relacionamento~vendas-%s",
+      "web~gol2~bbs~relacionamento~vendas-%s",
+      "web~gol2~seg~relacionamento~vendas-%s"
+    ],
+    "cancelamentos": [
+      "web~gol2~als~relacionamento~cancelamentos-%s",
+      "web~gol2~seg~relacionamento~cancelamentos-%s"
+    ],
+    "pendentes": [
+      "web~gol2~als~relacionamento~pnd-vendas-%s"
+    ],
+    "contatos": "web~gol2~bic~relacionamento~%s"
+  },
+  "seguro_auto": {
+    "label": "Seguro Auto",
+    "grupo": "Seguridade",
+    "blocos": "{3000}",
+    "dimensoes": [
+      {
+        "rotulo": "RS",
+        "campo": "rs"
+      },
+      {
+        "rotulo": "Volume",
+        "campo": "valor"
+      },
+      {
+        "rotulo": "Quantidade",
+        "campo": "qtde"
+      },
+      {
+        "rotulo": "RIV",
+        "campo": "riv"
+      }
+    ],
+    "contatos_campo": "qtde",
+    "vendas": [
+      "web~gol2~svl~relacionamento~vendas-%s"
+    ],
+    "cancelamentos": [
+      "web~gol2~svl~relacionamento~cancelamentos-%s"
+    ],
+    "pendentes": [],
+    "contatos": "web~gol2~bic~relacionamento~%s"
+  },
+  "seguro_rural": {
+    "label": "Seguro Rural",
+    "grupo": "Seguridade",
+    "blocos": "{3060}",
+    "dimensoes": [
+      {
+        "rotulo": "RS",
+        "campo": "rs"
+      },
+      {
+        "rotulo": "Volume",
+        "campo": "valor"
+      },
+      {
+        "rotulo": "Quantidade",
+        "campo": "qtde"
+      },
+      {
+        "rotulo": "RIV",
+        "campo": "riv"
+      }
+    ],
+    "contatos_campo": "qtde",
+    "vendas": [
+      "web~gol2~als~relacionamento~vendas-%s",
+      "web~gol2~bbs~relacionamento~vendas-%s",
+      "web~gol2~seg~relacionamento~vendas-%s"
+    ],
+    "cancelamentos": [
+      "web~gol2~als~relacionamento~cancelamentos-%s",
+      "web~gol2~seg~relacionamento~cancelamentos-%s"
+    ],
+    "pendentes": [
+      "web~gol2~als~relacionamento~pnd-vendas-%s"
+    ],
+    "contatos": "web~gol2~bic~relacionamento~%s"
+  },
+  "bb_dental": {
+    "label": "BB Dental",
+    "grupo": "Seguridade",
+    "blocos": "{3050}",
+    "dimensoes": [
+      {
+        "rotulo": "RS",
+        "campo": "rs"
+      },
+      {
+        "rotulo": "Volume",
+        "campo": "valor"
+      },
+      {
+        "rotulo": "Quantidade",
+        "campo": "qtde"
+      },
+      {
+        "rotulo": "RIV",
+        "campo": "riv"
+      }
+    ],
+    "contatos_campo": "qtde",
+    "vendas": [
+      "web~gol2~bss~relacionamento~vendas-%s"
+    ],
+    "cancelamentos": [],
+    "pendentes": [],
+    "contatos": "web~gol2~bic~relacionamento~%s"
+  },
+  "kit_bb_seguros": {
+    "label": "Kit BB Seguros",
+    "grupo": "Seguridade",
+    "blocos": "{3900}",
+    "dimensoes": [
+      {
+        "rotulo": "RS",
+        "campo": "rs"
+      },
+      {
+        "rotulo": "Volume",
+        "campo": "valor"
+      },
+      {
+        "rotulo": "Quantidade",
+        "campo": "qtde"
+      },
+      {
+        "rotulo": "RIV",
+        "campo": "riv"
+      }
+    ],
+    "contatos_campo": "qtde",
+    "vendas": [
+      "web~gol2~seg~relacionamento~vendas-%s"
+    ],
+    "cancelamentos": [
+      "web~gol2~seg~relacionamento~cancelamentos-%s"
+    ],
+    "pendentes": [],
+    "contatos": "web~gol2~bic~relacionamento~%s"
+  },
+  "previdencia_total": {
+    "label": "Previdência Total",
+    "grupo": "Seguridade",
+    "blocos": "{3040,3041}",
+    "dimensoes": [
+      {
+        "rotulo": "RS",
+        "campo": "rs"
+      },
+      {
+        "rotulo": "Volume",
+        "campo": "valor"
+      },
+      {
+        "rotulo": "Quantidade",
+        "campo": "qtde"
+      },
+      {
+        "rotulo": "RIV",
+        "campo": "riv"
+      }
+    ],
+    "contatos_campo": "qtde",
+    "vendas": [
+      "web~gol2~bpr~seguridade~relacionamento~vendas-%s"
+    ],
+    "cancelamentos": [],
+    "pendentes": [
+      "web~gol2~bpr~seguridade~relacionamento~pnd-vendas-%s"
+    ],
+    "contatos": "web~gol2~bic~relacionamento~%s"
+  },
+  "previdencia_mensal": {
+    "label": "Previdência Plano Mensal",
+    "grupo": "Seguridade",
+    "blocos": "{3040}",
+    "dimensoes": [
+      {
+        "rotulo": "RS",
+        "campo": "rs"
+      },
+      {
+        "rotulo": "Volume",
+        "campo": "valor"
+      },
+      {
+        "rotulo": "Quantidade",
+        "campo": "qtde"
+      },
+      {
+        "rotulo": "RIV",
+        "campo": "riv"
+      }
+    ],
+    "contatos_campo": "qtde",
+    "vendas": [
+      "web~gol2~bpr~seguridade~relacionamento~vendas-%s"
+    ],
+    "cancelamentos": [],
+    "pendentes": [
+      "web~gol2~bpr~seguridade~relacionamento~pnd-vendas-%s"
+    ],
+    "contatos": "web~gol2~bic~relacionamento~%s"
+  },
+  "previdencia_unico": {
+    "label": "Previdência Plano Único",
+    "grupo": "Seguridade",
+    "blocos": "{3041}",
+    "dimensoes": [
+      {
+        "rotulo": "RS",
+        "campo": "rs"
+      },
+      {
+        "rotulo": "Volume",
+        "campo": "valor"
+      },
+      {
+        "rotulo": "Quantidade",
+        "campo": "qtde"
+      },
+      {
+        "rotulo": "RIV",
+        "campo": "riv"
+      }
+    ],
+    "contatos_campo": "qtde",
+    "vendas": [
+      "web~gol2~bpr~seguridade~relacionamento~vendas-%s"
+    ],
+    "cancelamentos": [],
+    "pendentes": [
+      "web~gol2~bpr~seguridade~relacionamento~pnd-vendas-%s"
+    ],
+    "contatos": "web~gol2~bic~relacionamento~%s"
+  },
+  "ourocap_total": {
+    "label": "Ourocap Total",
+    "grupo": "Seguridade",
+    "blocos": "{3071,3072}",
+    "dimensoes": [
+      {
+        "rotulo": "Tarifa",
+        "campo": "tarifa"
+      },
+      {
+        "rotulo": "Volume",
+        "campo": "valor"
+      },
+      {
+        "rotulo": "Quantidade",
+        "campo": "qtde"
+      },
+      {
+        "rotulo": "RIV",
+        "campo": "riv"
+      }
+    ],
+    "contatos_campo": "qtde",
+    "vendas": [
+      "web~gol2~otc~relacionamento~%s"
+    ],
+    "cancelamentos": [],
+    "pendentes": [
+      "web~gol2~otc~relacionamento~pnd-vendas-%s"
+    ],
+    "contatos": "web~gol2~bic~relacionamento~%s"
+  },
+  "ourocap_mensal": {
+    "label": "Ourocap Mensal",
+    "grupo": "Seguridade",
+    "blocos": "{3071}",
+    "dimensoes": [
+      {
+        "rotulo": "Tarifa",
+        "campo": "tarifa"
+      },
+      {
+        "rotulo": "Volume",
+        "campo": "valor"
+      },
+      {
+        "rotulo": "Quantidade",
+        "campo": "qtde"
+      },
+      {
+        "rotulo": "RIV",
+        "campo": "riv"
+      }
+    ],
+    "contatos_campo": "qtde",
+    "vendas": [
+      "web~gol2~otc~relacionamento~%s"
+    ],
+    "cancelamentos": [],
+    "pendentes": [
+      "web~gol2~otc~relacionamento~pnd-vendas-%s"
+    ],
+    "contatos": "web~gol2~bic~relacionamento~%s"
+  },
+  "ourocap_pu": {
+    "label": "Ourocap PU",
+    "grupo": "Seguridade",
+    "blocos": "{3072}",
+    "dimensoes": [
+      {
+        "rotulo": "Tarifa",
+        "campo": "tarifa"
+      },
+      {
+        "rotulo": "Volume",
+        "campo": "valor"
+      },
+      {
+        "rotulo": "Quantidade",
+        "campo": "qtde"
+      },
+      {
+        "rotulo": "RIV",
+        "campo": "riv"
+      }
+    ],
+    "contatos_campo": "qtde",
+    "vendas": [
+      "web~gol2~otc~relacionamento~%s"
+    ],
+    "cancelamentos": [],
+    "pendentes": [
+      "web~gol2~otc~relacionamento~pnd-vendas-%s"
+    ],
+    "contatos": "web~gol2~bic~relacionamento~%s"
+  },
+  "aplicacoes_captacao": {
+    "label": "Aplicações Captação",
+    "grupo": "Aplicações e Captação",
+    "blocos": "{7001,7002,7003,7005}",
+    "dimensoes": [
+      {
+        "rotulo": "Volume",
+        "campo": "valor"
+      },
+      {
+        "rotulo": "Quantidade",
+        "campo": "qtde"
+      },
+      {
+        "rotulo": "RIV",
+        "campo": "riv"
+      }
+    ],
+    "contatos_campo": "qtde",
+    "vendas": [
+      "web~gol2~cpr~relacionamento~%s",
+      "web~gol2~rdo~relacionamento~%s",
+      "web~gol2~cac~relacionamento~%s"
+    ],
+    "cancelamentos": [],
+    "pendentes": [],
+    "contatos": "web~gol2~bic~relacionamento~%s"
+  },
+  "aplicacao_fundos": {
+    "label": "Aplicação Fundos",
+    "grupo": "Aplicações e Captação",
+    "blocos": "{7006}",
+    "dimensoes": [
+      {
+        "rotulo": "Volume",
+        "campo": "valor"
+      },
+      {
+        "rotulo": "Quantidade",
+        "campo": "qtde"
+      },
+      {
+        "rotulo": "RIV",
+        "campo": "riv"
+      }
+    ],
+    "contatos_campo": "qtde",
+    "vendas": [
+      "web~gol2~gfi~relacionamento~%s"
+    ],
+    "cancelamentos": [],
+    "pendentes": [],
+    "contatos": "web~gol2~bic~relacionamento~%s"
+  },
+  "aplicacao_previdencia": {
+    "label": "Aplicação Previdência",
+    "grupo": "Aplicações e Captação",
+    "blocos": "{7004}",
+    "dimensoes": [
+      {
+        "rotulo": "Volume",
+        "campo": "valor"
+      },
+      {
+        "rotulo": "Quantidade",
+        "campo": "qtde"
+      },
+      {
+        "rotulo": "RIV",
+        "campo": "riv"
+      }
+    ],
+    "contatos_campo": "qtde",
+    "vendas": [
+      "web~gol2~bpr~aplicacoes~relacionamento~%s"
+    ],
+    "cancelamentos": [],
+    "pendentes": [],
+    "contatos": "web~gol2~bic~relacionamento~%s"
+  },
+  "portabilidade_aplicacao_resgate": {
+    "label": "Portabilidade Aplicação/Resgate",
+    "grupo": "Aplicações e Captação",
+    "blocos": "{7009}",
+    "dimensoes": [
+      {
+        "rotulo": "Volume",
+        "campo": "valor"
+      },
+      {
+        "rotulo": "Quantidade",
+        "campo": "qtde"
+      },
+      {
+        "rotulo": "RIV",
+        "campo": "riv"
+      }
+    ],
+    "contatos_campo": "qtde",
+    "vendas": [
+      "web~gol2~piv~relacionamento~%s"
+    ],
+    "cancelamentos": [],
+    "pendentes": [],
+    "contatos": "web~gol2~bic~relacionamento~%s"
+  },
+  "captacao_poupanca": {
+    "label": "Captação Poupança",
+    "grupo": "Aplicações e Captação",
+    "blocos": "{7005}",
+    "dimensoes": [
+      {
+        "rotulo": "Volume",
+        "campo": "valor"
+      },
+      {
+        "rotulo": "Quantidade",
+        "campo": "qtde"
+      },
+      {
+        "rotulo": "RIV",
+        "campo": "riv"
+      }
+    ],
+    "contatos_campo": "qtde",
+    "vendas": [
+      "web~gol2~cpr~relacionamento~%s"
+    ],
+    "cancelamentos": [],
+    "pendentes": [],
+    "contatos": "web~gol2~bic~relacionamento~%s"
+  },
+  "captacao_cdb": {
+    "label": "Captação CDB",
+    "grupo": "Aplicações e Captação",
+    "blocos": "{7003}",
+    "dimensoes": [
+      {
+        "rotulo": "Volume",
+        "campo": "valor"
+      },
+      {
+        "rotulo": "Quantidade",
+        "campo": "qtde"
+      },
+      {
+        "rotulo": "RIV",
+        "campo": "riv"
+      }
+    ],
+    "contatos_campo": "qtde",
+    "vendas": [
+      "web~gol2~rdo~relacionamento~%s"
+    ],
+    "cancelamentos": [],
+    "pendentes": [],
+    "contatos": "web~gol2~bic~relacionamento~%s"
+  },
+  "captacao_lca": {
+    "label": "Captação LCA",
+    "grupo": "Aplicações e Captação",
+    "blocos": "{7001}",
+    "dimensoes": [
+      {
+        "rotulo": "Volume",
+        "campo": "valor"
+      },
+      {
+        "rotulo": "Quantidade",
+        "campo": "qtde"
+      },
+      {
+        "rotulo": "RIV",
+        "campo": "riv"
+      }
+    ],
+    "contatos_campo": "qtde",
+    "vendas": [
+      "web~gol2~cac~relacionamento~%s"
+    ],
+    "cancelamentos": [],
+    "pendentes": [],
+    "contatos": "web~gol2~bic~relacionamento~%s"
+  },
+  "captacao_lci": {
+    "label": "Captação LCI",
+    "grupo": "Aplicações e Captação",
+    "blocos": "{7002}",
+    "dimensoes": [
+      {
+        "rotulo": "Volume",
+        "campo": "valor"
+      },
+      {
+        "rotulo": "Quantidade",
+        "campo": "qtde"
+      },
+      {
+        "rotulo": "RIV",
+        "campo": "riv"
+      }
+    ],
+    "contatos_campo": "qtde",
+    "vendas": [
+      "web~gol2~cac~relacionamento~%s"
+    ],
+    "cancelamentos": [],
+    "pendentes": [],
+    "contatos": "web~gol2~bic~relacionamento~%s"
+  },
+  "consorcio_total": {
+    "label": "Consórcio Total",
+    "grupo": "Consórcios",
+    "blocos": "{6001,6002,6003,6004,6005,6006}",
+    "dimensoes": [
+      {
+        "rotulo": "Tarifa",
+        "campo": "tarifa"
+      },
+      {
+        "rotulo": "Volume",
+        "campo": "valor"
+      },
+      {
+        "rotulo": "Quantidade",
+        "campo": "qtde"
+      },
+      {
+        "rotulo": "RIV",
+        "campo": "riv"
+      }
+    ],
+    "contatos_campo": "qtde",
+    "vendas": [
+      "web~gol2~aco~relacionamento~%s"
+    ],
+    "cancelamentos": [
+      "web~gol2~aco~relacionamento~cnc-%s"
+    ],
+    "pendentes": [
+      "web~gol2~aco~relacionamento~pnd-%s"
+    ]
+  },
+  "consorcio_imoveis": {
+    "label": "Consórcio Imóveis",
+    "grupo": "Consórcios",
+    "blocos": "{6001}",
+    "dimensoes": [
+      {
+        "rotulo": "Tarifa",
+        "campo": "tarifa"
+      },
+      {
+        "rotulo": "Volume",
+        "campo": "valor"
+      },
+      {
+        "rotulo": "Quantidade",
+        "campo": "qtde"
+      },
+      {
+        "rotulo": "RIV",
+        "campo": "riv"
+      }
+    ],
+    "contatos_campo": "qtde",
+    "vendas": [
+      "web~gol2~aco~relacionamento~%s"
+    ],
+    "cancelamentos": [
+      "web~gol2~aco~relacionamento~cnc-%s"
+    ],
+    "pendentes": [
+      "web~gol2~aco~relacionamento~pnd-%s"
+    ]
+  },
+  "consorcio_auto": {
+    "label": "Consórcio Auto",
+    "grupo": "Consórcios",
+    "blocos": "{6003}",
+    "dimensoes": [
+      {
+        "rotulo": "Tarifa",
+        "campo": "tarifa"
+      },
+      {
+        "rotulo": "Volume",
+        "campo": "valor"
+      },
+      {
+        "rotulo": "Quantidade",
+        "campo": "qtde"
+      },
+      {
+        "rotulo": "RIV",
+        "campo": "riv"
+      }
+    ],
+    "contatos_campo": "qtde",
+    "vendas": [
+      "web~gol2~aco~relacionamento~%s"
+    ],
+    "cancelamentos": [
+      "web~gol2~aco~relacionamento~cnc-%s"
+    ],
+    "pendentes": [
+      "web~gol2~aco~relacionamento~pnd-%s"
+    ]
+  },
+  "consorcio_trator_caminhao": {
+    "label": "Consórcio Trator e Caminhão",
+    "grupo": "Consórcios",
+    "blocos": "{6002}",
+    "dimensoes": [
+      {
+        "rotulo": "Tarifa",
+        "campo": "tarifa"
+      },
+      {
+        "rotulo": "Volume",
+        "campo": "valor"
+      },
+      {
+        "rotulo": "Quantidade",
+        "campo": "qtde"
+      },
+      {
+        "rotulo": "RIV",
+        "campo": "riv"
+      }
+    ],
+    "contatos_campo": "qtde",
+    "vendas": [
+      "web~gol2~aco~relacionamento~%s"
+    ],
+    "cancelamentos": [
+      "web~gol2~aco~relacionamento~cnc-%s"
+    ],
+    "pendentes": [
+      "web~gol2~aco~relacionamento~pnd-%s"
+    ]
+  },
+  "consorcio_moto": {
+    "label": "Consórcio Moto",
+    "grupo": "Consórcios",
+    "blocos": "{6004}",
+    "dimensoes": [
+      {
+        "rotulo": "Tarifa",
+        "campo": "tarifa"
+      },
+      {
+        "rotulo": "Volume",
+        "campo": "valor"
+      },
+      {
+        "rotulo": "Quantidade",
+        "campo": "qtde"
+      },
+      {
+        "rotulo": "RIV",
+        "campo": "riv"
+      }
+    ],
+    "contatos_campo": "qtde",
+    "vendas": [
+      "web~gol2~aco~relacionamento~%s"
+    ],
+    "cancelamentos": [
+      "web~gol2~aco~relacionamento~cnc-%s"
+    ],
+    "pendentes": [
+      "web~gol2~aco~relacionamento~pnd-%s"
+    ]
+  },
+  "consorcio_eletrodomestico": {
+    "label": "Consórcio Eletrodoméstico",
+    "grupo": "Consórcios",
+    "blocos": "{6005}",
+    "dimensoes": [
+      {
+        "rotulo": "Tarifa",
+        "campo": "tarifa"
+      },
+      {
+        "rotulo": "Volume",
+        "campo": "valor"
+      },
+      {
+        "rotulo": "Quantidade",
+        "campo": "qtde"
+      },
+      {
+        "rotulo": "RIV",
+        "campo": "riv"
+      }
+    ],
+    "contatos_campo": "qtde",
+    "vendas": [
+      "web~gol2~aco~relacionamento~%s"
+    ],
+    "cancelamentos": [
+      "web~gol2~aco~relacionamento~cnc-%s"
+    ],
+    "pendentes": [
+      "web~gol2~aco~relacionamento~pnd-%s"
+    ]
+  },
+  "consorcio_servicos": {
+    "label": "Consórcio Serviços",
+    "grupo": "Consórcios",
+    "blocos": "{6006}",
+    "dimensoes": [
+      {
+        "rotulo": "Tarifa",
+        "campo": "tarifa"
+      },
+      {
+        "rotulo": "Volume",
+        "campo": "valor"
+      },
+      {
+        "rotulo": "Quantidade",
+        "campo": "qtde"
+      },
+      {
+        "rotulo": "RIV",
+        "campo": "riv"
+      }
+    ],
+    "contatos_campo": "qtde",
+    "vendas": [
+      "web~gol2~aco~relacionamento~%s"
+    ],
+    "cancelamentos": [
+      "web~gol2~aco~relacionamento~cnc-%s"
+    ],
+    "pendentes": [
+      "web~gol2~aco~relacionamento~pnd-%s"
+    ]
+  },
+  "pacotes_clubes_total": {
+    "label": "Pacotes e Clubes de Benefícios Total",
+    "grupo": "Pacotes e Clubes",
+    "blocos": "{6201,6211,6202,6212,6203,6213,6204,6214,6205,6215}",
+    "dimensoes": [
+      {
+        "rotulo": "Tarifa",
+        "campo": "tarifa"
+      },
+      {
+        "rotulo": "Quantidade",
+        "campo": "qtde"
+      },
+      {
+        "rotulo": "RIV",
+        "campo": "riv"
+      }
+    ],
+    "contatos_campo": "qtde",
+    "vendas": [
+      "web~gol2~tfa~pacotes~relacionamento~%s"
+    ],
+    "cancelamentos": [],
+    "pendentes": []
+  }
+}

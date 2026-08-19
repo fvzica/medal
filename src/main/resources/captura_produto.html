@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Captura de Produto GOL → Config</title>
+<style>
+  :root{--bb-azul:#0033a0;--bb-azul-esc:#002169;--bb-amarelo:#fcd200;--verde:#0a7d34;
+    --cinza:#f4f6fa;--linha:#e3e8f0;--txt:#1f2937;--txt2:#5b6472;--card:#fff}
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:'Segoe UI',Arial,sans-serif;background:var(--cinza);color:var(--txt);font-size:14px;line-height:1.5}
+  header{background:linear-gradient(90deg,var(--bb-azul-esc),var(--bb-azul));color:#fff;padding:16px 24px;display:flex;align-items:center;gap:14px}
+  .logo{width:36px;height:36px;background:var(--bb-amarelo);border-radius:8px;display:flex;align-items:center;justify-content:center;font-weight:800;color:var(--bb-azul-esc)}
+  header h1{font-size:18px}header .sub{font-size:12px;opacity:.85}
+  .wrap{max-width:1100px;margin:0 auto;padding:24px}
+  .card{background:var(--card);border-radius:12px;padding:20px;box-shadow:0 1px 3px rgba(0,0,0,.08);margin-bottom:18px}
+  .card h2{font-size:15px;color:var(--bb-azul);margin-bottom:8px}
+  .passos{list-style:none;counter-reset:p}
+  .passos li{counter-increment:p;padding:6px 0 6px 34px;position:relative}
+  .passos li::before{content:counter(p);position:absolute;left:0;top:6px;width:24px;height:24px;background:var(--bb-azul);color:#fff;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700}
+  code{background:#eef1f6;padding:2px 6px;border-radius:5px;font-size:13px}
+  label{display:block;font-size:12px;color:var(--txt2);font-weight:700;text-transform:uppercase;letter-spacing:.4px;margin:10px 0 4px}
+  input,textarea{width:100%;padding:10px;border:1px solid var(--linha);border-radius:8px;font-size:14px;font-family:inherit}
+  textarea{min-height:180px;font-family:'Consolas',monospace;font-size:12.5px;white-space:pre;overflow:auto}
+  .row{display:flex;gap:14px}.row>div{flex:1}
+  .btn{padding:10px 18px;border:none;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;background:var(--bb-azul);color:#fff;margin-top:12px}
+  .btn:hover{background:var(--bb-azul-esc)}
+  .btn.copy{background:var(--verde)}
+  pre{background:#0d1117;color:#e6edf3;padding:16px;border-radius:8px;overflow:auto;font-size:12.5px;max-height:340px}
+  .tags{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+  .tag{font-size:11px;padding:3px 9px;border-radius:20px;font-weight:600}
+  .tag.v{background:#dcfce7;color:#166534}.tag.c{background:#fee2e2;color:#991b1b}
+  .tag.p{background:#fef9c3;color:#854d0e}.tag.o{background:#dbeafe;color:#1e40af}.tag.x{background:#f1f5f9;color:#475569}
+  .hint{font-size:12px;color:var(--txt2);margin-top:4px}
+  .ok{color:var(--verde);font-weight:600}
+</style>
+</head>
+<body>
+<header>
+  <div class="logo">BB</div>
+  <div><h1>Captura de Produto GOL → Config</h1>
+  <div class="sub">Cole os <code>subscribe:</code> de um produto e gere a configuração pronta</div></div>
+</header>
+<div class="wrap">
+
+  <div class="card">
+    <h2>Como capturar (30 segundos por produto)</h2>
+    <ol class="passos">
+      <li>Abra a página do produto no GOL (ex.: <code>.../9007/credito-pf/relacionamento/total/jurisdicao</code>).</li>
+      <li>Abra o DevTools (F12) → aba <b>Network</b> → filtro <b>Socket</b> (WS) → recarregue (F5).</li>
+      <li>Clique na conexão <code>live</code> → aba <b>Messages</b>.</li>
+      <li>Selecione e copie <b>todas</b> as linhas <code>subscribe:...</code> (as de seta ↑).</li>
+      <li>Cole abaixo, dê o nome do produto e clique em <b>Gerar config</b>.</li>
+    </ol>
+    <p class="hint">Dica: pode colar linhas extras (handshake, dados) que eu ignoro — só uso os <code>subscribe:</code>.</p>
+  </div>
+
+  <div class="card">
+    <div class="row">
+      <div>
+        <label>Chave do produto (sem espaços)</label>
+        <input id="chave" placeholder="ex.: credito_total">
+      </div>
+      <div>
+        <label>Rótulo (exibição)</label>
+        <input id="label" placeholder="ex.: Crédito Total">
+      </div>
+    </div>
+    <label>Cole aqui os subscribe: do WebSocket</label>
+    <textarea id="entrada" placeholder='subscribe:1:web~gol2~cdc~relacionamento~vendas-jurisdicao:{"prefixo":"9007","blocos":"{1001,1002}"}
+subscribe:2:web~gol2~cdc~relacionamento~cancelamentos-jurisdicao:{"prefixo":"9007","blocos":"{1001,1002}"}
+...'></textarea>
+    <div class="tags" id="tags"></div>
+    <button class="btn" onclick="gerar()">⚙ Gerar config</button>
+  </div>
+
+  <div class="card" id="saidaCard" style="display:none">
+    <h2>Config gerada <span class="ok" id="resumo"></span></h2>
+    <p class="hint">Copie este bloco e me envie (ou cole no arquivo <code>produtos.json</code> quando a engine estiver pronta).</p>
+    <pre id="saida"></pre>
+    <button class="btn copy" onclick="copiar()">📋 Copiar</button>
+  </div>
+
+</div>
+<script>
+function classifica(topico){
+  // remove sufixo de visao (-jurisdicao/-origem/-canais) para analisar a metrica
+  const t = topico;
+  if(/~vendas-/.test(t) || /~desembolso-/.test(t)) return 'vendas';
+  if(/~cancelamentos-/.test(t) || /~liquidacao/.test(t)) return 'cancelamentos';
+  if(/~pnd-/.test(t) || /~pendentes-/.test(t)) return 'pendentes';
+  // bic ou topico que termina so em ~jurisdicao (sem metrica) => contatos/base
+  if(/~bic~/.test(t) || /relacionamento~jurisdicao$/.test(t) || /relacionamento~[a-z]+$/.test(t)) return 'contatos';
+  return 'outros';
+}
+function parse(txt){
+  const linhas = txt.split(/\r?\n/);
+  const re = /subscribe:\d+:(.+?):(\{.*\})\s*$/;
+  const out = {vendas:[],cancelamentos:[],pendentes:[],contatos:[],outros:[]};
+  let blocos = null;
+  linhas.forEach(l=>{
+    const m = l.match(re);
+    if(!m) return;
+    const topico = m[1].trim();
+    try{ const j = JSON.parse(m[2]); if(j.blocos && !blocos) blocos = j.blocos; }catch(e){}
+    const cat = classifica(topico);
+    if(!out[cat].includes(topico)) out[cat].push(topico);
+  });
+  return {out, blocos};
+}
+function gerar(){
+  const chave = (document.getElementById('chave').value||'').trim() || 'produto';
+  const label = (document.getElementById('label').value||'').trim() || chave;
+  const {out, blocos} = parse(document.getElementById('entrada').value);
+  // tags visuais
+  const tg=document.getElementById('tags'); tg.innerHTML='';
+  const add=(cls,txt)=>{const s=document.createElement('span');s.className='tag '+cls;s.textContent=txt;tg.appendChild(s);};
+  out.vendas.forEach(t=>add('v','vendas: '+curto(t)));
+  out.cancelamentos.forEach(t=>add('c','cancel: '+curto(t)));
+  out.pendentes.forEach(t=>add('p','pnd: '+curto(t)));
+  out.contatos.forEach(t=>add('o','contatos: '+curto(t)));
+  out.outros.forEach(t=>add('x','? '+curto(t)));
+  // monta config (usa %s no lugar da visao para reaproveitar em jurisdicao/origem/canais)
+  const tpl = arr => arr.map(t=>'"'+t.replace(/-(jurisdicao|origem|canais)$/,'-%s').replace(/~(jurisdicao|origem|canais)$/,'~%s')+'"');
+  const cfg = {};
+  cfg[chave] = {
+    label: label,
+    blocos: blocos || "{}",
+    vendas: JSON.parse('['+tpl(out.vendas).join(',')+']'),
+    cancelamentos: JSON.parse('['+tpl(out.cancelamentos).join(',')+']'),
+    pendentes: JSON.parse('['+tpl(out.pendentes).join(',')+']'),
+    contatos: out.contatos.length? out.contatos[0].replace(/~(jurisdicao|origem|canais)$/,'~%s').replace(/-(jurisdicao|origem|canais)$/,'-%s') : null
+  };
+  if(out.outros.length) cfg[chave]._revisar = out.outros;
+  document.getElementById('saida').textContent = JSON.stringify(cfg,null,2);
+  document.getElementById('saidaCard').style.display='block';
+  const n=out.vendas.length+out.cancelamentos.length+out.pendentes.length+out.contatos.length;
+  document.getElementById('resumo').textContent = '· '+n+' tópicos reconhecidos'+(out.outros.length?(' · '+out.outros.length+' p/ revisar'):'');
+}
+function curto(t){ return t.replace('web~gol2~','').replace('relacionamento~',''); }
+function copiar(){ navigator.clipboard.writeText(document.getElementById('saida').textContent); }
+</script>
+</body>
+</html>
