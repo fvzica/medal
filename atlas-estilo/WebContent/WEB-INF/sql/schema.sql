@@ -123,14 +123,14 @@ CREATE TABLE IF NOT EXISTS foto (
 );
 CREATE INDEX IF NOT EXISTS idx_foto_prefixo ON foto(prefixo);
 
+-- Carga inicial de masters: feita pelo código (ConfigDao.semearMastersSeVazio)
+-- SOMENTE quando a tabela está vazia — reexecutar o schema no boot não pode
+-- ressuscitar um master removido pela tela Admin.
 CREATE TABLE IF NOT EXISTS config_master (
   matricula    TEXT PRIMARY KEY,
   incluido_por TEXT,
   criado_em    INTEGER
 );
-INSERT OR IGNORE INTO config_master (matricula) VALUES ('F3548926');
-INSERT OR IGNORE INTO config_master (matricula) VALUES ('F3191837');
-INSERT OR IGNORE INTO config_master (matricula) VALUES ('F6323371');
 
 CREATE TABLE IF NOT EXISTS usuario_flag (
   matricula  TEXT PRIMARY KEY,

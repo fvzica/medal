@@ -66,16 +66,19 @@ public final class GestaoDao {
         }
     }
 
+    /** Campos nulos são preservados (não sobrescreve o que a tela não enviou). */
     public static boolean visitaAtualizar(long id, String status, Long dataPlanejada,
                                           Long dataRealizada, String resumo,
                                           long agora) throws SQLException {
-        String sql = "UPDATE visita SET status = ?, data_planejada = ?, " +
-                     "data_realizada = ?, resumo = ?, atualizado_em = ? WHERE id = ?";
+        String sql = "UPDATE visita SET status = COALESCE(?, status), " +
+                     "data_planejada = COALESCE(?, data_planejada), " +
+                     "data_realizada = COALESCE(?, data_realizada), " +
+                     "resumo = COALESCE(?, resumo), atualizado_em = ? WHERE id = ?";
         try (Connection c = Db.conexao(); PreparedStatement ps = c.prepareStatement(sql)) {
-            ps.setString(1, status);
+            ps.setString(1, Texto.vazio(status) ? null : status);
             setLong(ps, 2, dataPlanejada);
             setLong(ps, 3, dataRealizada);
-            ps.setString(4, Texto.aparar(resumo, 4000));
+            ps.setString(4, Texto.vazio(resumo) ? null : Texto.aparar(resumo, 4000));
             ps.setLong(5, agora);
             ps.setLong(6, id);
             return ps.executeUpdate() > 0;

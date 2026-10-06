@@ -17,6 +17,24 @@ public final class ConfigDao {
 
     // ---------------------------------------------------------------- masters
 
+    /** Carga inicial de masters, SÓ quando a tabela está vazia (1º boot). */
+    public static void semearMastersSeVazio() throws SQLException {
+        try (Connection c = Db.conexao()) {
+            try (Statement st = c.createStatement();
+                 ResultSet rs = st.executeQuery("SELECT COUNT(*) FROM config_master")) {
+                rs.next();
+                if (rs.getInt(1) > 0) return;
+            }
+            try (PreparedStatement ps = c.prepareStatement(
+                    "INSERT OR IGNORE INTO config_master (matricula) VALUES (?)")) {
+                for (String m : new String[] { "F3548926", "F3191837", "F6323371" }) {
+                    ps.setString(1, m);
+                    ps.executeUpdate();
+                }
+            }
+        }
+    }
+
     public static String masters() throws SQLException {
         Json.Arr arr = Json.arr();
         try (Connection c = Db.conexao(); Statement st = c.createStatement();
@@ -149,18 +167,22 @@ public final class ConfigDao {
 
     // -------------------------------------------------------- dados de exemplo
 
-    /** Apaga tudo que foi semeado como exemplo (origem = 'EXEMPLO'). */
+    /**
+     * Apaga tudo que foi semeado como exemplo: registros com origem='EXEMPLO'
+     * e os de gestão criados pelo gerador (criado_por='EXEMPLO'), incluindo as
+     * anotações gerais (prefixo NULL) do exemplo.
+     */
     public static void limparExemplo() throws SQLException {
         try (Connection c = Db.conexao(); Statement st = c.createStatement()) {
             st.executeUpdate("DELETE FROM funci WHERE origem = 'EXEMPLO'");
             st.executeUpdate("DELETE FROM carteira WHERE origem = 'EXEMPLO'");
             st.executeUpdate("DELETE FROM pdg WHERE origem = 'EXEMPLO'");
             st.executeUpdate("DELETE FROM meta WHERE origem = 'EXEMPLO'");
-            st.executeUpdate("DELETE FROM visita WHERE prefixo IN " +
+            st.executeUpdate("DELETE FROM visita WHERE criado_por = 'EXEMPLO' OR prefixo IN " +
                              "(SELECT prefixo FROM agencia WHERE origem = 'EXEMPLO')");
-            st.executeUpdate("DELETE FROM anotacao WHERE prefixo IN " +
+            st.executeUpdate("DELETE FROM anotacao WHERE criado_por = 'EXEMPLO' OR prefixo IN " +
                              "(SELECT prefixo FROM agencia WHERE origem = 'EXEMPLO')");
-            st.executeUpdate("DELETE FROM ponto_melhoria WHERE prefixo IN " +
+            st.executeUpdate("DELETE FROM ponto_melhoria WHERE criado_por = 'EXEMPLO' OR prefixo IN " +
                              "(SELECT prefixo FROM agencia WHERE origem = 'EXEMPLO')");
             st.executeUpdate("DELETE FROM foto WHERE prefixo IN " +
                              "(SELECT prefixo FROM agencia WHERE origem = 'EXEMPLO')");

@@ -31,8 +31,10 @@ public final class Selecao {
             sel.params.add(Texto.normalizar(uf));
         }
         if (!Texto.vazio(municipio)) {
-            sel.conds.add("UPPER(a.municipio) = ?");
-            sel.params.add(Texto.normalizar(municipio));
+            // comparação exata: o front manda o nome exatamente como está no
+            // banco (vem de /api/municipios); UPPER do SQLite não cobre acento
+            sel.conds.add("a.municipio = ?");
+            sel.params.add(municipio.trim());
         }
         if (!Texto.vazio(regional)) {
             sel.conds.add("a.regional = ?");

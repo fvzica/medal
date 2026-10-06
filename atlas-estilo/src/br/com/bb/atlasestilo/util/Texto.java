@@ -66,8 +66,13 @@ public final class Texto {
     /** Interpreta número decimal tolerando vírgula brasileira e milhar. */
     public static Double decimal(String s) {
         if (vazio(s)) return null;
-        String v = s.trim().replace("R$", "").replace("%", "").trim();
-        if (v.contains(",")) v = v.replace(".", "").replace(',', '.');
+        String v = s.trim().replace("R$", "").replace("%", "").replace(" ", "").trim();
+        if (v.contains(",")) {
+            v = v.replace(".", "").replace(',', '.');
+        } else if (v.matches("-?\\d{1,3}(\\.\\d{3})+")) {
+            // só pontos, em grupos de 3: milhar brasileiro ("1.500" = 1500)
+            v = v.replace(".", "");
+        }
         try { return Double.parseDouble(v); } catch (NumberFormatException e) { return null; }
     }
 

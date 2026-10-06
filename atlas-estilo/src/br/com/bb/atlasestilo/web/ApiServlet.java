@@ -170,6 +170,8 @@ public class ApiServlet extends HttpServlet {
                 case "admin":    postAdmin(req, resp, s, cam, agora); return;
                 default: Http.erro(resp, 404, "Rota desconhecida: " + cam[0]);
             }
+        } catch (NumberFormatException e) {
+            Http.erro(resp, 400, "Identificador inválido na rota.");
         } catch (SQLException e) {
             log("Erro de banco em POST /" + String.join("/", cam), e);
             Http.erro(resp, 500, "Erro interno de banco de dados.");

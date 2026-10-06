@@ -18,6 +18,8 @@
     t._timer = setTimeout(function () { t.classList.remove('visivel'); }, 3000);
   }
   function api(rota, opts) {
+    opts = opts || {};
+    opts.headers = Object.assign({ 'X-Atlas': '1' }, opts.headers || {});
     return fetch(CTX + '/api/' + rota, opts).then(function (r) {
       return r.json().catch(function () { return { erro: 'Resposta inválida.' }; })
         .then(function (j) {

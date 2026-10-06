@@ -42,6 +42,7 @@ public final class SelfTest {
                 new File("WebContent/WEB-INF/sql/schema.sql"))) {
             AppListener.executarSql(schema);
         }
+        br.com.bb.atlasestilo.dao.ConfigDao.semearMastersSeVazio();
         DadosExemplo.semear();
         long agora = System.currentTimeMillis();
 
@@ -145,8 +146,36 @@ public final class SelfTest {
                 && "2026-2".equals(ImportService.normalizarSemestre("2026/2"))
                 && "2025-1".equals(ImportService.normalizarSemestre("20251")));
         verifica("prefixo canônico", Texto.prefixo("01881-0").equals("1881"));
-        verifica("decimal brasileiro", Texto.decimal("1.234,56") == 1234.56);
+        verifica("decimal brasileiro", Texto.decimal("1.234,56") == 1234.56
+                && Texto.decimal("1.500") == 1500.0
+                && Texto.decimal("1.5") == 1.5
+                && Texto.decimal("1.200.000") == 1200000.0);
         verifica("data excel serial", Xlsx.dataDeCelula("45000") != null);
+
+        // município com acento (comparação exata, sem depender do UPPER do SQLite)
+        String resumoSampa = MetricaDao.resumo(master,
+                Selecao.de(master, "SP", "São Paulo", null, null), agora);
+        verifica("filtro de município acentuado",
+                resumoSampa.contains("\"agencias\":4"));
+
+        // master removido não ressuscita quando o schema roda de novo no boot
+        verifica("remover master", br.com.bb.atlasestilo.dao.ConfigDao.masterRemover("F6323371"));
+        try (FileInputStream schema = new FileInputStream(
+                new File("WebContent/WEB-INF/sql/schema.sql"))) {
+            AppListener.executarSql(schema);
+        }
+        br.com.bb.atlasestilo.dao.ConfigDao.semearMastersSeVazio();
+        verifica("master removido não volta no boot",
+                contar("SELECT COUNT(*) FROM config_master") == 2);
+
+        // limpar exemplo remove também as anotações gerais do gerador
+        br.com.bb.atlasestilo.dao.ConfigDao.limparExemplo();
+        verifica("limpar exemplo zera agências EXEMPLO",
+                contar("SELECT COUNT(*) FROM agencia WHERE origem='EXEMPLO'") == 0);
+        verifica("limpar exemplo zera anotações do gerador",
+                contar("SELECT COUNT(*) FROM anotacao WHERE criado_por='EXEMPLO'") == 0);
+        verifica("import real sobrevive à limpeza",
+                contar("SELECT COUNT(*) FROM agencia WHERE prefixo='7777'") == 1);
 
         System.out.println("SelfTest OK — " + verificacoes + " verificações.");
     }

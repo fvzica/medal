@@ -144,7 +144,8 @@ public final class MetricaDao {
                             .put("nome", rs.getString("nome"))
                             .put("tipo", rs.getString("tipo"))
                             .put("qtdClientes", rs.getInt("qtd_clientes"))
-                            .put("gerenteMatricula", rs.getString("gerente_matricula"))
+                            // Colega vê só os grandes números — nada de pessoas
+                            .put("gerenteMatricula", s.veTudo() ? rs.getString("gerente_matricula") : null)
                             .put("gerenteNome", s.veTudo() ? rs.getString("gerente_nome") : null)
                             .fim());
                     }

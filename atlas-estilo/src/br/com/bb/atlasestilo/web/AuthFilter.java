@@ -29,24 +29,58 @@ public class AuthFilter implements Filter {
         devSimular = Boolean.TRUE.equals(dev);
     }
 
+    /** Validade do cache da Sessao na HttpSession (perfil muda raramente). */
+    private static final long CACHE_MS = 60_000L;
+
     @Override
     public void doFilter(ServletRequest sreq, ServletResponse sresp, FilterChain chain)
             throws IOException, ServletException {
         HttpServletRequest req = (HttpServletRequest) sreq;
         HttpServletResponse resp = (HttpServletResponse) sresp;
+        if (req.getCharacterEncoding() == null) req.setCharacterEncoding("UTF-8");
         String caminho = req.getRequestURI().substring(req.getContextPath().length());
 
-        // página de acesso negado é standalone (o usuário pode nem existir)
-        if (caminho.equals("/negado.jsp")) { chain.doFilter(sreq, sresp); return; }
+        // página de acesso negado é standalone (o usuário pode nem existir);
+        // estáticos não carregam dados — não precisam de perfil
+        if (caminho.equals("/negado.jsp")
+                || caminho.startsWith("/css/") || caminho.startsWith("/js/")) {
+            chain.doFilter(sreq, sresp);
+            return;
+        }
+
+        boolean escrita = !"GET".equalsIgnoreCase(req.getMethod())
+                && !"HEAD".equalsIgnoreCase(req.getMethod());
+
+        // Anti-CSRF: toda escrita exige o cabeçalho X-Atlas, que formulários
+        // de outros sites não conseguem enviar (o fetch da própria ferramenta
+        // envia sempre).
+        if (escrita && req.getHeader("X-Atlas") == null) {
+            Http.erro(resp, 403, "Requisição sem o cabeçalho de proteção (X-Atlas).");
+            return;
+        }
 
         Sessao sessao = (Sessao) req.getAttribute("sessao");
         if (sessao == null) {
             HttpSession http = req.getSession(false);
-            Object usuarioSso = http == null ? null : http.getAttribute("usuario");
-            if (usuarioSso != null) {
-                sessao = Sessao.montar(usuarioSso);
-            } else if (devSimular) {
-                sessao = Sessao.montar("F3548926", "Desenvolvedor (simulado)", "9007", "DEV");
+            // cache por sessão HTTP, com validade curta
+            if (http != null) {
+                Object[] cache = (Object[]) http.getAttribute("sessao.atlas");
+                if (cache != null
+                        && System.currentTimeMillis() - (Long) cache[1] < CACHE_MS) {
+                    sessao = (Sessao) cache[0];
+                }
+            }
+            if (sessao == null) {
+                Object usuarioSso = http == null ? null : http.getAttribute("usuario");
+                if (usuarioSso != null) {
+                    sessao = Sessao.montar(usuarioSso);
+                } else if (devSimular) {
+                    sessao = Sessao.montar("F3548926", "Desenvolvedor (simulado)", "9007", "DEV");
+                }
+                if (sessao != null) {
+                    req.getSession(true).setAttribute("sessao.atlas",
+                        new Object[] { sessao, System.currentTimeMillis() });
+                }
             }
         }
 
@@ -60,7 +94,7 @@ public class AuthFilter implements Filter {
             return;
         }
 
-        if (sessao.somenteLeitura && !"GET".equalsIgnoreCase(req.getMethod())) {
+        if (sessao.somenteLeitura && escrita) {
             Http.erro(resp, 403, "Sua matrícula está em modo somente leitura.");
             return;
         }

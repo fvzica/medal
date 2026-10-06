@@ -44,6 +44,11 @@ public class AppListener implements ServletContextListener {
 
         Db.iniciar(dbPath);
         executarSchema(ctx);
+        try {
+            br.com.bb.atlasestilo.dao.ConfigDao.semearMastersSeVazio();
+        } catch (java.sql.SQLException e) {
+            throw new IllegalStateException("Falha na carga inicial de masters.", e);
+        }
 
         boolean exemplo = "true".equalsIgnoreCase(
                 String.valueOf(ctx.getInitParameter("atlas.dados.exemplo")));

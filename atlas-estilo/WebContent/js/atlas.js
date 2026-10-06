@@ -35,6 +35,8 @@
   }
 
   function api(rota, opts) {
+    opts = opts || {};
+    opts.headers = Object.assign({ 'X-Atlas': '1' }, opts.headers || {});
     return fetch(CTX + '/api/' + rota, opts).then(function (r) {
       return r.json().catch(function () { return { erro: 'Resposta inválida.' }; })
         .then(function (j) {
@@ -405,6 +407,7 @@
   }
 
   function renderPainel(f, resumo, agencias, municipios) {
+    App.listaAberta = null; // o painel novo nasce sem lista de detalhe aberta
     var titulo = f.municipio ? f.municipio
       : f.uf ? (UF_NOMES[f.uf] || f.uf)
       : (App.contexto.regionalJurisdicao || 'Brasil');
@@ -742,11 +745,13 @@
   }
 
   function notaHtml(a) {
+    var acoes = App.contexto.master
+      ? '<span class="acoes-nota">' +
+        '<button class="botao mini claro" data-acao="fixar">' + (a.fixada ? 'solta' : 'fixa') + '</button>' +
+        '<button class="botao mini perigo" data-acao="excluir-anotacao">excluir</button></span>'
+      : '';
     return '<div class="nota' + (a.fixada ? ' fixada' : '') + '" data-anotacao="' + a.id + '">' +
-      '<span class="acoes-nota">' +
-      '<button class="botao mini claro" data-acao="fixar">' + (a.fixada ? 'solta' : 'fixa') + '</button>' +
-      '<button class="botao mini perigo" data-acao="excluir-anotacao">excluir</button></span>' +
-      esc(a.texto) + '<br><small>' + fmtData(a.criadoEm) + '</small></div>';
+      acoes + esc(a.texto) + '<br><small>' + fmtData(a.criadoEm) + '</small></div>';
   }
 
   function pontosHtml(d) {
@@ -822,40 +827,49 @@
         .then(function () { toast('Ponto aberto.'); recarregar(prefixo); })
         .catch(function (e) { toast(e.message); });
     });
+  }
 
-    raiz.addEventListener('click', function (ev) {
-      var b = ev.target.closest('[data-acao]');
-      if (!b) return;
-      var acao = b.getAttribute('data-acao');
-      var nota = b.closest('.nota');
-      var p;
-      if (acao === 'realizar') {
-        post('visita/' + nota.getAttribute('data-visita'),
-          { status: 'REALIZADA', dataRealizada: Date.now() })
-          .then(function () { toast('Visita concluída. 🎉'); recarregar(prefixo); });
-      } else if (acao === 'excluir-visita') {
-        post('visita/' + nota.getAttribute('data-visita') + '/excluir', {})
-          .then(function () { recarregar(prefixo); });
-      } else if (acao === 'fixar') {
-        var fixada = nota.classList.contains('fixada') ? '0' : '1';
-        post('anotacao/' + nota.getAttribute('data-anotacao'), { fixada: fixada })
-          .then(function () { recarregar(prefixo); });
-      } else if (acao === 'excluir-anotacao') {
-        post('anotacao/' + nota.getAttribute('data-anotacao') + '/excluir', {})
-          .then(function () { recarregar(prefixo); });
-      } else if (acao === 'tratar') {
-        post('ponto/' + nota.getAttribute('data-ponto'), { status: 'EM_TRATATIVA' })
-          .then(function () { recarregar(prefixo); });
-      } else if (acao === 'resolver') {
-        p = prompt('Qual foi a solução aplicada?');
-        if (p == null) return;
-        post('ponto/' + nota.getAttribute('data-ponto'), { status: 'RESOLVIDO', solucao: p })
-          .then(function () { toast('Ponto resolvido. ✓'); recarregar(prefixo); });
-      } else if (acao === 'excluir-ponto') {
-        post('ponto/' + nota.getAttribute('data-ponto') + '/excluir', {})
-          .then(function () { recarregar(prefixo); });
-      }
-    });
+  /**
+   * Delegação ÚNICA (registrada no boot) das ações de gestão dentro do drawer
+   * da agência — o corpo é re-renderizado a cada abertura, então o listener
+   * fica no contêiner fixo para não acumular.
+   */
+  function aoClicarGestaoAgencia(ev) {
+    var b = ev.target.closest('[data-acao]');
+    if (!b || !App.agencia) return;
+    var prefixo = App.agencia.agencia.prefixo;
+    var acao = b.getAttribute('data-acao');
+    var nota = b.closest('.nota');
+    var falha = function (e) { toast(e.message); };
+    var p;
+    if (acao === 'realizar') {
+      post('visita/' + nota.getAttribute('data-visita'),
+        { status: 'REALIZADA', dataRealizada: Date.now() })
+        .then(function () { toast('Visita concluída. 🎉'); recarregar(prefixo); })
+        .catch(falha);
+    } else if (acao === 'excluir-visita') {
+      post('visita/' + nota.getAttribute('data-visita') + '/excluir', {})
+        .then(function () { recarregar(prefixo); }).catch(falha);
+    } else if (acao === 'fixar') {
+      var fixada = nota.classList.contains('fixada') ? '0' : '1';
+      post('anotacao/' + nota.getAttribute('data-anotacao'), { fixada: fixada })
+        .then(function () { recarregar(prefixo); }).catch(falha);
+    } else if (acao === 'excluir-anotacao') {
+      post('anotacao/' + nota.getAttribute('data-anotacao') + '/excluir', {})
+        .then(function () { recarregar(prefixo); }).catch(falha);
+    } else if (acao === 'tratar') {
+      post('ponto/' + nota.getAttribute('data-ponto'), { status: 'EM_TRATATIVA' })
+        .then(function () { recarregar(prefixo); }).catch(falha);
+    } else if (acao === 'resolver') {
+      p = prompt('Qual foi a solução aplicada?');
+      if (p == null) return;
+      post('ponto/' + nota.getAttribute('data-ponto'), { status: 'RESOLVIDO', solucao: p })
+        .then(function () { toast('Ponto resolvido. ✓'); recarregar(prefixo); })
+        .catch(falha);
+    } else if (acao === 'excluir-ponto') {
+      post('ponto/' + nota.getAttribute('data-ponto') + '/excluir', {})
+        .then(function () { recarregar(prefixo); }).catch(falha);
+    }
   }
 
   function recarregar(prefixo) {
@@ -1010,9 +1024,11 @@
 
       h += '<div class="cartao"><div class="cartao-corpo">' +
         '<h3>Minhas anotações</h3>' +
-        '<div style="display:flex;gap:8px;margin-bottom:10px">' +
-        '<input type="text" id="plan-anotacao" style="flex:1" placeholder="anotar um lembrete geral…">' +
-        '<button class="botao claro" id="plan-anotar" type="button">Anotar</button></div>' +
+        (App.contexto.master
+          ? '<div style="display:flex;gap:8px;margin-bottom:10px">' +
+            '<input type="text" id="plan-anotacao" style="flex:1" placeholder="anotar um lembrete geral…">' +
+            '<button class="botao claro" id="plan-anotar" type="button">Anotar</button></div>'
+          : '') +
         '<div class="fila" id="plan-notas">';
       (p.anotacoesGerais || []).forEach(function (a) { h += notaHtml(a); });
       h += '</div></div></div>';
@@ -1023,26 +1039,13 @@
           abrirAgencia(b.getAttribute('data-prefixo'));
         });
       });
-      $('#plan-anotar').addEventListener('click', function () {
+      var anotar = $('#plan-anotar');
+      if (anotar) anotar.addEventListener('click', function () {
         var t = $('#plan-anotacao').value.trim();
         if (!t) return;
         post('anotacao', { texto: t })
           .then(function () { toast('Anotado.'); carregarPlanejamento(); })
           .catch(function (e) { toast(e.message); });
-      });
-      alvo.addEventListener('click', function (ev) {
-        var b = ev.target.closest('[data-acao]');
-        if (!b) return;
-        var nota = b.closest('.nota');
-        var acao = b.getAttribute('data-acao');
-        if (acao === 'fixar') {
-          post('anotacao/' + nota.getAttribute('data-anotacao'),
-            { fixada: nota.classList.contains('fixada') ? '0' : '1' })
-            .then(carregarPlanejamento);
-        } else if (acao === 'excluir-anotacao') {
-          post('anotacao/' + nota.getAttribute('data-anotacao') + '/excluir', {})
-            .then(carregarPlanejamento);
-        }
       });
     }).catch(function (e) {
       alvo.innerHTML = '<div class="aviso">' + esc(e.message) + '</div>';
@@ -1090,6 +1093,23 @@
 
     $('#fechar-agencia').addEventListener('click', fecharAgencia);
     $('#fechar-dash').addEventListener('click', fecharDash);
+    // delegações únicas: os corpos são re-renderizados, os listeners não
+    $('#ag-corpo').addEventListener('click', aoClicarGestaoAgencia);
+    $('#grade-planejamento').addEventListener('click', function (ev) {
+      var b = ev.target.closest('[data-acao]');
+      if (!b) return;
+      var nota = b.closest('.nota');
+      var acao = b.getAttribute('data-acao');
+      var falha = function (e) { toast(e.message); };
+      if (acao === 'fixar') {
+        post('anotacao/' + nota.getAttribute('data-anotacao'),
+          { fixada: nota.classList.contains('fixada') ? '0' : '1' })
+          .then(carregarPlanejamento).catch(falha);
+      } else if (acao === 'excluir-anotacao') {
+        post('anotacao/' + nota.getAttribute('data-anotacao') + '/excluir', {})
+          .then(carregarPlanejamento).catch(falha);
+      }
+    });
     $('#veu').addEventListener('click', function () { fecharDash(); fecharAgencia(); });
     document.addEventListener('keydown', function (ev) {
       if (ev.key !== 'Escape') return;

@@ -100,14 +100,14 @@ public final class DadosExemplo {
                     "projecao,origem,atualizado_em) VALUES (?,?,?,?,?,?,'EXEMPLO',?)");
                 PreparedStatement viIns = c.prepareStatement(
                     "INSERT INTO visita (prefixo,status,data_planejada,data_realizada,resumo," +
-                    "criado_por,criado_em,atualizado_em) VALUES (?,?,?,?,?,'F3548926',?,?)");
+                    "criado_por,criado_em,atualizado_em) VALUES (?,?,?,?,?,'EXEMPLO',?,?)");
                 PreparedStatement anIns = c.prepareStatement(
                     "INSERT INTO anotacao (prefixo,texto,fixada,criado_por,criado_em," +
-                    "atualizado_em) VALUES (?,?,?,'F3548926',?,?)");
+                    "atualizado_em) VALUES (?,?,?,'EXEMPLO',?,?)");
                 PreparedStatement poIns = c.prepareStatement(
                     "INSERT INTO ponto_melhoria (prefixo,descricao,status,solucao,previsao," +
                     "resolvido_em,criado_por,criado_em,atualizado_em) " +
-                    "VALUES (?,?,?,?,?,?,'F3548926',?,?)");
+                    "VALUES (?,?,?,?,?,?,'EXEMPLO',?,?)");
 
                 int seqMatricula = 1;
                 int idx = 0;
