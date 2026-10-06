@@ -1,0 +1,63 @@
+<%@ page pageEncoding="UTF-8" %><%
+    br.com.bb.atlasestilo.web.Sessao sessao =
+        (br.com.bb.atlasestilo.web.Sessao) request.getAttribute("sessao");
+    String ctx = request.getContextPath();
+%>
+<script>
+(function(){
+  var t=null; try{ t=localStorage.getItem('superpf1.tema'); }catch(e){}
+  document.documentElement.setAttribute('data-tema', t==='escuro'?'escuro':'claro');
+  document.addEventListener('DOMContentLoaded',function(){
+    var b=document.getElementById('botao-tema'); if(!b) return;
+    b.addEventListener('click',function(){
+      var n=document.documentElement.getAttribute('data-tema')==='escuro'?'claro':'escuro';
+      document.documentElement.setAttribute('data-tema',n);
+      try{ localStorage.setItem('superpf1.tema',n); }catch(e){}
+    });
+  });
+})();
+</script>
+<header class="masthead">
+  <div class="masthead-conteudo">
+    <a class="marca" href="<%= ctx %>/">
+      <span class="monograma">BB</span>
+      <span class="marca-texto">
+        <strong>Atlas Estilo</strong>
+        <small>SUPER PF1 · Banco do Brasil</small>
+      </span>
+    </a>
+    <nav class="nav-principal">
+      <a href="<%= ctx %>/" data-nav="mapa">Mapa</a>
+      <% if (sessao != null && sessao.veTudo()) { %>
+      <a href="<%= ctx %>/#planejamento" data-nav="planejamento">Planejamento</a>
+      <% } %>
+      <% if (sessao != null && sessao.master()) { %>
+      <a href="<%= ctx %>/admin.jsp" data-nav="admin">Admin</a>
+      <% } %>
+    </nav>
+    <div class="masthead-acoes">
+      <button id="botao-tema" class="botao-tema" type="button" title="Alternar tema">
+        <span class="quando-claro">&#9788; Claro</span>
+        <span class="quando-escuro">&#9790; Escuro</span>
+      </button>
+      <% if (sessao != null) { %>
+      <div class="chip-usuario" title="<%= br.com.bb.atlasestilo.util.Texto.esc(sessao.matricula) %> · <%= br.com.bb.atlasestilo.util.Texto.esc(sessao.perfil) %>">
+        <img class="avatar" alt=""
+             src="https://humanograma.intranet.bb.com.br/avatar/<%= br.com.bb.atlasestilo.util.Texto.esc(sessao.matricula) %>"
+             onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
+        <span class="avatar avatar-iniciais" style="display:none"><%=
+            br.com.bb.atlasestilo.util.Texto.esc(
+                sessao.nome != null && !sessao.nome.isEmpty()
+                    ? sessao.nome.substring(0, 1).toUpperCase() : "?") %></span>
+        <span class="chip-usuario-nome">
+          <strong><%= br.com.bb.atlasestilo.util.Texto.esc(sessao.nome) %></strong>
+          <small><%= br.com.bb.atlasestilo.util.Texto.esc(sessao.perfil) %><%=
+              sessao.regionalJurisdicao != null
+                  ? " · " + br.com.bb.atlasestilo.util.Texto.esc(sessao.regionalJurisdicao) : "" %></small>
+        </span>
+      </div>
+      <% } %>
+    </div>
+  </div>
+  <div class="fio-dourado"></div>
+</header>

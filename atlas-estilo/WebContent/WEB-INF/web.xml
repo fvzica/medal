@@ -1,0 +1,101 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<web-app xmlns="http://java.sun.com/xml/ns/javaee"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://java.sun.com/xml/ns/javaee
+                             http://java.sun.com/xml/ns/javaee/web-app_3_0.xsd"
+         version="3.0">
+
+  <display-name>Atlas Estilo — SUPER PF1</display-name>
+
+  <!-- Caminhos de dados FORA da webapp, DENTRO da pasta do Tomcat
+       (sobrevivem a redeploy; a conta de serviço do Tomcat tem escrita). -->
+  <context-param>
+    <param-name>atlas.db.path</param-name>
+    <param-value>${catalina.base}/dados/atlasestilo/atlas.db</param-value>
+  </context-param>
+  <context-param>
+    <param-name>atlas.foto.dir</param-name>
+    <param-value>${catalina.base}/dados/atlasestilo/fotos</param-value>
+  </context-param>
+
+  <!-- Dados de exemplo: semeados na 1ª subida quando o banco está vazio.
+       O Master pode limpar/recarregar pela tela Admin. -->
+  <context-param>
+    <param-name>atlas.dados.exemplo</param-name>
+    <param-value>true</param-value>
+  </context-param>
+
+  <!-- Google Maps/Street View na página da agência (iframe carregado pela
+       ESTAÇÃO do usuário, não pelo servidor). Se a rede bloquear, deixe
+       false: a fachada passa a usar a foto do admin. -->
+  <context-param>
+    <param-name>atlas.maps.ativo</param-name>
+    <param-value>true</param-value>
+  </context-param>
+
+  <!-- DEV-SIMULAR-INICIO: em produção fica false. O build dev troca para true
+       e remove o bloco do SSO abaixo, permitindo testar sem o login do BB. -->
+  <context-param>
+    <param-name>atlas.dev.simular</param-name>
+    <param-value>false</param-value>
+  </context-param>
+  <!-- DEV-SIMULAR-FIM -->
+
+  <!-- SSO-INICIO — 1º filtro: SSO OAuth2 do BB (classes copiadas de uma
+       ferramenta existente para terceiros/sso; ver README-DEPLOY). -->
+  <filter>
+    <filter-name>FilterOauth2</filter-name>
+    <filter-class>br.com.bb.sso.filter.FilterOauth2</filter-class>
+  </filter>
+  <filter-mapping>
+    <filter-name>FilterOauth2</filter-name>
+    <url-pattern>/*</url-pattern>
+  </filter-mapping>
+  <!-- SSO-FIM -->
+
+  <!-- 2º filtro: porteiro da aplicação (lê o Usuario da sessão por reflexão,
+       resolve perfil e jurisdição, aplica flag BLOQUEADO). -->
+  <filter>
+    <filter-name>AuthFilter</filter-name>
+    <filter-class>br.com.bb.atlasestilo.web.AuthFilter</filter-class>
+  </filter>
+  <filter-mapping>
+    <filter-name>AuthFilter</filter-name>
+    <url-pattern>/*</url-pattern>
+  </filter-mapping>
+
+  <listener>
+    <listener-class>br.com.bb.atlasestilo.web.AppListener</listener-class>
+  </listener>
+
+  <servlet>
+    <servlet-name>ApiServlet</servlet-name>
+    <servlet-class>br.com.bb.atlasestilo.web.ApiServlet</servlet-class>
+    <multipart-config>
+      <max-file-size>8388608</max-file-size>        <!-- 8 MB por arquivo -->
+      <max-request-size>41943040</max-request-size> <!-- 40 MB por requisição -->
+      <file-size-threshold>262144</file-size-threshold>
+    </multipart-config>
+  </servlet>
+  <servlet-mapping>
+    <servlet-name>ApiServlet</servlet-name>
+    <url-pattern>/api/*</url-pattern>
+  </servlet-mapping>
+
+  <servlet>
+    <servlet-name>FotoServlet</servlet-name>
+    <servlet-class>br.com.bb.atlasestilo.web.FotoServlet</servlet-class>
+  </servlet>
+  <servlet-mapping>
+    <servlet-name>FotoServlet</servlet-name>
+    <url-pattern>/foto/*</url-pattern>
+  </servlet-mapping>
+
+  <welcome-file-list>
+    <welcome-file>index.jsp</welcome-file>
+  </welcome-file-list>
+
+  <session-config>
+    <session-timeout>480</session-timeout>
+  </session-config>
+</web-app>

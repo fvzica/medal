@@ -1,0 +1,7 @@
+Coloque aqui os binários do SSO do BB, copiados de uma ferramenta existente (ex.: boaspraticas):
+
+  br/com/bb/sso/filter/FilterOauth2.class
+  br/com/bb/sso/bean/Usuario.class
+  json-20230618.jar
+
+O build.sh inclui tudo no WAR automaticamente quando presente.
