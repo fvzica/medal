@@ -2,62 +2,79 @@
     br.com.bb.atlasestilo.web.Sessao sessao =
         (br.com.bb.atlasestilo.web.Sessao) request.getAttribute("sessao");
     String ctx = request.getContextPath();
+    boolean paginaAdmin = request.getRequestURI().endsWith("admin.jsp");
 %>
 <script>
 (function(){
   var t=null; try{ t=localStorage.getItem('superpf1.tema'); }catch(e){}
   document.documentElement.setAttribute('data-tema', t==='escuro'?'escuro':'claro');
   document.addEventListener('DOMContentLoaded',function(){
-    var b=document.getElementById('botao-tema'); if(!b) return;
-    b.addEventListener('click',function(){
+    var b=document.getElementById('botao-tema'); if(b) b.addEventListener('click',function(){
       var n=document.documentElement.getAttribute('data-tema')==='escuro'?'claro':'escuro';
       document.documentElement.setAttribute('data-tema',n);
       try{ localStorage.setItem('superpf1.tema',n); }catch(e){}
     });
+    var menu=document.getElementById('abrir-menu'), side=document.getElementById('sidebar'),
+        veu=document.getElementById('veu-menu');
+    function fechar(){ side.classList.remove('aberta'); if(veu) veu.classList.remove('aberto'); }
+    if(menu) menu.addEventListener('click',function(){
+      side.classList.toggle('aberta'); if(veu) veu.classList.toggle('aberto', side.classList.contains('aberta'));
+    });
+    if(veu) veu.addEventListener('click',fechar);
+    side.addEventListener('click',function(ev){ if(ev.target.closest('a')) fechar(); });
   });
 })();
 </script>
-<header class="masthead">
-  <div class="masthead-conteudo">
-    <a class="marca" href="<%= ctx %>/">
-      <span class="monograma">BB</span>
-      <span class="marca-texto">
-        <strong>Atlas Estilo</strong>
-        <small>SUPER PF1 · Banco do Brasil</small>
+<div class="app">
+<div class="veu-menu" id="veu-menu"></div>
+<aside class="sidebar" id="sidebar" aria-label="Navegação">
+  <a class="marca" href="<%= ctx %>/">
+    <span class="monograma">BB</span>
+    <span class="marca-texto">
+      <strong>Atlas Estilo</strong>
+      <small>SUPER PF1 · Banco do Brasil</small>
+    </span>
+  </a>
+  <nav class="nav-lateral" id="nav-lateral">
+    <span class="nav-secao">Navegação</span>
+    <a href="<%= ctx %>/#mapa" data-nav="mapa" class="<%= paginaAdmin ? "" : "ativa" %>">
+      <svg viewBox="0 0 24 24"><path d="M9 4 3.5 6v14L9 18l6 2 5.5-2V4L15 6 9 4Zm0 0v14m6-12v14"/></svg>
+      <span>Atlas</span></a>
+    <% if (sessao != null && sessao.master()) { %>
+    <a href="<%= ctx %>/#planejamento" data-nav="planejamento">
+      <svg viewBox="0 0 24 24"><path d="M4 19V10m5.4 9V5m5.3 14v-8m5.3 8V8"/></svg>
+      <span>Minha gestão</span></a>
+    <a href="<%= ctx %>/#acoes" data-nav="acoes">
+      <svg viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/><path d="M4 20h16" opacity=".35"/></svg>
+      <span>Ações</span><span class="contador" id="nav-acoes-n" hidden>0</span></a>
+    <span class="nav-secao">Administração</span>
+    <a href="<%= ctx %>/admin.jsp" data-nav="admin" class="<%= paginaAdmin ? "ativa" : "" %>">
+      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z"/></svg>
+      <span>Admin</span></a>
+    <% } %>
+  </nav>
+  <div class="sidebar-rodape">
+    <button id="botao-tema" class="botao-tema" type="button" title="Alternar tema">
+      <span class="quando-claro">&#9790; Modo noite</span>
+      <span class="quando-escuro">&#9788; Modo dia</span>
+    </button>
+    <% if (sessao != null) { %>
+    <div class="chip-usuario" title="<%= br.com.bb.atlasestilo.util.Texto.esc(sessao.matricula) %> · <%= br.com.bb.atlasestilo.util.Texto.esc(sessao.perfil) %>">
+      <img class="avatar" alt=""
+           src="https://humanograma.intranet.bb.com.br/avatar/<%= br.com.bb.atlasestilo.util.Texto.esc(sessao.matricula) %>"
+           onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
+      <span class="avatar avatar-iniciais" style="display:none"><%=
+          br.com.bb.atlasestilo.util.Texto.esc(
+              sessao.nome != null && !sessao.nome.isEmpty()
+                  ? sessao.nome.substring(0, 1).toUpperCase() : "?") %></span>
+      <span class="chip-usuario-nome">
+        <strong><%= br.com.bb.atlasestilo.util.Texto.esc(sessao.nome) %></strong>
+        <small><%= br.com.bb.atlasestilo.util.Texto.esc(sessao.perfil) %><%=
+            sessao.regionalJurisdicao != null
+                ? " · " + br.com.bb.atlasestilo.util.Texto.esc(sessao.regionalJurisdicao) : "" %></small>
       </span>
-    </a>
-    <nav class="nav-principal">
-      <a href="<%= ctx %>/" data-nav="mapa">Mapa</a>
-      <% if (sessao != null && sessao.veTudo()) { %>
-      <a href="<%= ctx %>/#planejamento" data-nav="planejamento">Planejamento</a>
-      <% } %>
-      <% if (sessao != null && sessao.master()) { %>
-      <a href="<%= ctx %>/admin.jsp" data-nav="admin">Admin</a>
-      <% } %>
-    </nav>
-    <div class="masthead-acoes">
-      <button id="botao-tema" class="botao-tema" type="button" title="Alternar tema">
-        <span class="quando-claro">&#9788; Claro</span>
-        <span class="quando-escuro">&#9790; Escuro</span>
-      </button>
-      <% if (sessao != null) { %>
-      <div class="chip-usuario" title="<%= br.com.bb.atlasestilo.util.Texto.esc(sessao.matricula) %> · <%= br.com.bb.atlasestilo.util.Texto.esc(sessao.perfil) %>">
-        <img class="avatar" alt=""
-             src="https://humanograma.intranet.bb.com.br/avatar/<%= br.com.bb.atlasestilo.util.Texto.esc(sessao.matricula) %>"
-             onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
-        <span class="avatar avatar-iniciais" style="display:none"><%=
-            br.com.bb.atlasestilo.util.Texto.esc(
-                sessao.nome != null && !sessao.nome.isEmpty()
-                    ? sessao.nome.substring(0, 1).toUpperCase() : "?") %></span>
-        <span class="chip-usuario-nome">
-          <strong><%= br.com.bb.atlasestilo.util.Texto.esc(sessao.nome) %></strong>
-          <small><%= br.com.bb.atlasestilo.util.Texto.esc(sessao.perfil) %><%=
-              sessao.regionalJurisdicao != null
-                  ? " · " + br.com.bb.atlasestilo.util.Texto.esc(sessao.regionalJurisdicao) : "" %></small>
-        </span>
-      </div>
-      <% } %>
     </div>
+    <% } %>
   </div>
-  <div class="fio-dourado"></div>
-</header>
+</aside>
+<div class="principal">

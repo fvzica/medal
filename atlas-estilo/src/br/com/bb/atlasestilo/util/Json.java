@@ -69,6 +69,10 @@ public final class Json {
             virgula(); sb.append(str(chave)).append(':')
                        .append(valor == null ? "null" : String.valueOf(valor)); return this;
         }
+        public Obj putNum(String chave, Integer valor) {
+            virgula(); sb.append(str(chave)).append(':')
+                       .append(valor == null ? "null" : String.valueOf(valor)); return this;
+        }
         /** Valor já em JSON (objeto/array aninhado). */
         public Obj putRaw(String chave, String json) {
             virgula(); sb.append(str(chave)).append(':').append(json == null ? "null" : json); return this;

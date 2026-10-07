@@ -40,6 +40,7 @@ public class ApiServlet extends HttpServlet {
     protected void doGet(HttpServletRequest req, HttpServletResponse resp)
             throws ServletException, IOException {
         Sessao s = Sessao.de(req);
+        if (s == null) { Http.erro(resp, 403, "Acesso negado."); return; } // defesa em profundidade
         String[] cam = Http.caminho(req);
         long agora = System.currentTimeMillis();
         try {
@@ -107,28 +108,51 @@ public class ApiServlet extends HttpServlet {
                         .putRaw("pdgHistorico", ResultadoDao.pdgHistorico(prefixo))
                         .putRaw("conexao", FonteDao.conexaoAgencia(prefixo, s.veTudo()))
                         .putRaw("visoes", FonteDao.visoesCalculadas(s, sel))
-                        .putRaw("fotos", FotoDao.listar(prefixo, s.veTudo()));
+                        .putRaw("fotos", FotoDao.listar(prefixo, s.veTudo(), s.master()));
                     if (s.veTudo()) {
                         o.putRaw("equipe", MetricaDao.lista(s, sel, "funcis", agora))
                          .putRaw("carteiras", MetricaDao.lista(s, sel, "carteiras", agora))
-                         .putRaw("metas", ResultadoDao.metas(prefixo))
-                         .putRaw("visitas", GestaoDao.visitas(prefixo))
+                         .putRaw("metas", ResultadoDao.metas(prefixo));
+                    }
+                    // tudo que o Master registra (visitas, notas, fotos de visita, anotações,
+                    // ações) é exclusivo do Master — nem o Moderador recebe
+                    if (s.master()) {
+                        o.putRaw("visitas", GestaoDao.visitas(prefixo))
                          .putRaw("anotacoes", GestaoDao.anotacoes(prefixo))
-                         .putRaw("pontos", GestaoDao.pontos(prefixo, null));
+                         .putRaw("pontos", GestaoDao.acoes(prefixo, null, null, null, null, agora));
                     }
                     Http.json(resp, o.fim());
                     return;
                 }
                 case "planejamento":
-                    if (!exigir(resp, s.veTudo())) return;
+                    if (!exigir(resp, s.master())) return;
                     Http.json(resp, GestaoDao.planejamento(agora));
                     return;
                 case "pontos":
-                    if (!exigir(resp, s.veTudo())) return;
-                    Http.json(resp, GestaoDao.pontos(
+                case "acoes":
+                    if (!exigir(resp, s.master())) return;
+                    Http.json(resp, GestaoDao.acoes(
                         Texto.prefixo(Http.param(req, "prefixo", "")),
-                        Http.param(req, "status", null)));
+                        Http.param(req, "status", null), Http.param(req, "prazo", null),
+                        Http.param(req, "regional", null), Http.param(req, "prioridade", null), agora));
                     return;
+                case "ponto": {
+                    if (!exigir(resp, s.master())) return;
+                    if (cam.length >= 3 && cam[2].equals("atualizacoes")) {
+                        Http.json(resp, GestaoDao.atualizacoes(Long.parseLong(cam[1])));
+                        return;
+                    }
+                    Http.erro(resp, 404, "Use /ponto/{id}/atualizacoes.");
+                    return;
+                }
+                case "export": {
+                    if (!exigir(resp, s.master())) return;
+                    String oque = cam.length > 1 ? cam[1] : "";
+                    if (oque.equals("visitas")) Http.download(resp, "visitas-atlas-estilo.csv", GestaoDao.csvVisitas());
+                    else if (oque.equals("acoes")) Http.download(resp, "acoes-atlas-estilo.csv", GestaoDao.csvAcoes(agora));
+                    else Http.erro(resp, 404, "Export desconhecido (visitas | acoes).");
+                    return;
+                }
                 case "admin":
                     doGetAdmin(req, resp, s, cam);
                     return;
@@ -202,6 +226,7 @@ public class ApiServlet extends HttpServlet {
     protected void doPost(HttpServletRequest req, HttpServletResponse resp)
             throws ServletException, IOException {
         Sessao s = Sessao.de(req);
+        if (s == null) { Http.erro(resp, 403, "Acesso negado."); return; }
         String[] cam = Http.caminho(req);
         long agora = System.currentTimeMillis();
         try {
@@ -225,14 +250,40 @@ public class ApiServlet extends HttpServlet {
     }
 
     private void postVisita(HttpServletRequest req, HttpServletResponse resp, Sessao s,
-                            String[] cam, long agora) throws IOException, SQLException {
+                            String[] cam, long agora) throws IOException, ServletException, SQLException {
         if (cam.length >= 3 && cam[2].equals("excluir")) {
-            boolean ok = GestaoDao.visitaExcluir(Long.parseLong(cam[1]));
+            long visitaId = Long.parseLong(cam[1]);
+            // as fotos da visita vão junto (registro e arquivo); as ações ficam, soltas da visita
+            for (String arquivo : FotoDao.excluirDaVisita(visitaId)) {
+                java.io.File f = new java.io.File(dirFotos(), arquivo);
+                if (f.exists() && !f.delete()) f.deleteOnExit();
+            }
+            boolean ok = GestaoDao.visitaExcluir(visitaId);
             Http.json(resp, Json.obj().put("ok", ok).fim());
             return;
         }
-        String status = Http.param(req, "status", "PLANEJADA");
-        if (!status.equals("PLANEJADA") && !status.equals("REALIZADA")
+        // /api/visita/{id}/foto — fotos da visita, sempre restritas ao Master
+        if (cam.length >= 3 && cam[2].equals("foto")) {
+            long visitaId = Long.parseLong(cam[1]);
+            String prefixo = GestaoDao.visitaPrefixo(visitaId);
+            if (prefixo == null) { Http.erro(resp, 404, "Visita não encontrada."); return; }
+            int gravadas = 0;
+            for (Part p : req.getParts()) {
+                if (!"arquivo".equals(p.getName()) || p.getSize() == 0) continue;
+                String ext = extensaoImagem(p.getContentType());
+                if (ext == null) continue;
+                String id = UUID.randomUUID().toString().replace("-", "");
+                java.io.File destino = new java.io.File(dirFotos(), id + ext);
+                java.nio.file.Files.copy(p.getInputStream(), destino.toPath());
+                FotoDao.inserir(id, prefixo, null, "VISITA", req.getParameter("legenda"), id + ext,
+                        p.getContentType(), s.matricula, agora, visitaId, true);
+                gravadas++;
+            }
+            Http.json(resp, Json.obj().put("ok", gravadas > 0).put("gravadas", gravadas).fim());
+            return;
+        }
+        String status = Http.param(req, "status", cam.length >= 2 ? null : "PLANEJADA");
+        if (status != null && !status.equals("PLANEJADA") && !status.equals("REALIZADA")
                 && !status.equals("CANCELADA")) {
             Http.erro(resp, 400, "Status de visita inválido.");
             return;
@@ -240,17 +291,45 @@ public class ApiServlet extends HttpServlet {
         Long dataPlanejada = lerData(req, "dataPlanejada");
         Long dataRealizada = lerData(req, "dataRealizada");
         String resumo = Http.param(req, "resumo", null);
+        GestaoDao.Checklist ck = lerChecklist(req);
         if (cam.length >= 2) {
             boolean ok = GestaoDao.visitaAtualizar(Long.parseLong(cam[1]), status,
-                    dataPlanejada, dataRealizada, resumo, agora);
+                    dataPlanejada, dataRealizada, resumo, agora, ck);
             Http.json(resp, Json.obj().put("ok", ok).fim());
         } else {
             String prefixo = Texto.prefixo(Http.param(req, "prefixo", ""));
             if (prefixo.isEmpty()) { Http.erro(resp, 400, "Prefixo obrigatório."); return; }
-            long id = GestaoDao.visitaCriar(prefixo, status, dataPlanejada, dataRealizada,
-                    resumo, s.matricula, agora);
+            long id = GestaoDao.visitaCriar(prefixo, status == null ? "PLANEJADA" : status,
+                    dataPlanejada, dataRealizada, resumo, s.matricula, agora, ck);
             Http.json(resp, Json.obj().put("ok", true).put("id", id).fim());
         }
+    }
+
+    /** Campos do checklist (todos opcionais; ausentes não sobrescrevem). */
+    private static GestaoDao.Checklist lerChecklist(HttpServletRequest req) {
+        GestaoDao.Checklist k = new GestaoDao.Checklist();
+        k.ambiencia = nota5(req, "ambiencia");
+        k.atendimento = nota5(req, "atendimento");
+        k.organizacao = nota5(req, "organizacao");
+        k.equipe = nota5(req, "equipe");
+        String mov = Http.param(req, "movimento", null);
+        if (mov != null) k.movimento = mov.equals("VAZIA") || mov.equals("CHEIA") ? mov : "NORMAL";
+        String claros = req.getParameter("claros");
+        if (!Texto.vazio(claros)) { Integer c = Texto.inteiro(claros); if (c != null) k.claros = Math.max(0, Math.min(99, c)); }
+        String nota = req.getParameter("notaGeral");
+        if (!Texto.vazio(nota)) { Double n = Texto.decimal(nota); if (n != null) k.notaGeral = Math.max(0, Math.min(10, n)); }
+        String mel = req.getParameter("melhorias");
+        if (mel != null) k.melhorias = mel.replace("\n", "|").trim();
+        String perc = req.getParameter("percepcao");
+        if (perc != null) k.percepcao = perc.trim();
+        return k;
+    }
+
+    private static Integer nota5(HttpServletRequest req, String nome) {
+        String v = req.getParameter(nome);
+        if (Texto.vazio(v)) return null;
+        Integer n = Texto.inteiro(v);
+        return n == null ? null : Math.max(1, Math.min(5, n));
     }
 
     private void postAnotacao(HttpServletRequest req, HttpServletResponse resp, Sessao s,
@@ -284,15 +363,25 @@ public class ApiServlet extends HttpServlet {
             Http.json(resp, Json.obj().put("ok", ok).fim());
             return;
         }
+        String status = Http.param(req, "status", null);
+        if (status != null && !status.equals("ABERTO") && !status.equals("EM_TRATATIVA")
+                && !status.equals("RESOLVIDO")) {
+            Http.erro(resp, 400, "Status inválido.");
+            return;
+        }
+        // /api/ponto/{id}/comentar — retorno na linha do tempo (com ou sem mudança de status)
+        if (cam.length >= 3 && cam[2].equals("comentar")) {
+            String texto = Http.param(req, "texto", null);
+            if (texto == null && status == null) { Http.erro(resp, 400, "Escreva o retorno ou mude o status."); return; }
+            long id = GestaoDao.pontoComentar(Long.parseLong(cam[1]), texto, status, s.matricula, agora);
+            Http.json(resp, Json.obj().put("ok", true).put("id", id).fim());
+            return;
+        }
         if (cam.length >= 2) {
-            String status = Http.param(req, "status", null);
-            if (status != null && !status.equals("ABERTO") && !status.equals("EM_TRATATIVA")
-                    && !status.equals("RESOLVIDO")) {
-                Http.erro(resp, 400, "Status inválido.");
-                return;
-            }
             boolean ok = GestaoDao.pontoAtualizar(Long.parseLong(cam[1]), status,
-                    req.getParameter("solucao"), lerData(req, "previsao"), agora);
+                    req.getParameter("solucao"), lerData(req, "previsao"), agora,
+                    req.getParameter("responsavel"), req.getParameter("prioridade"),
+                    req.getParameter("descricao"));
             Http.json(resp, Json.obj().put("ok", ok).fim());
         } else {
             String prefixo = Texto.prefixo(Http.param(req, "prefixo", ""));
@@ -301,8 +390,11 @@ public class ApiServlet extends HttpServlet {
                 Http.erro(resp, 400, "Prefixo e descrição são obrigatórios.");
                 return;
             }
+            String visitaParam = req.getParameter("visitaId");
+            Long visitaId = Texto.vazio(visitaParam) ? null : Long.valueOf(visitaParam.trim());
             long id = GestaoDao.pontoCriar(prefixo, descricao, lerData(req, "previsao"),
-                    s.matricula, agora);
+                    s.matricula, agora, visitaId, req.getParameter("responsavel"),
+                    Http.param(req, "prioridade", "MEDIA"));
             Http.json(resp, Json.obj().put("ok", true).put("id", id).fim());
         }
     }
@@ -398,6 +490,7 @@ public class ApiServlet extends HttpServlet {
                 } else {
                     ConfigDao.masterIncluir(matricula, s.matricula, agora);
                 }
+                AuthFilter.invalidarPerfis(); // quem perdeu/ganhou master sente na próxima requisição
                 Http.json(resp, Json.obj().put("ok", true).fim());
                 return;
             }
@@ -409,6 +502,7 @@ public class ApiServlet extends HttpServlet {
                     return;
                 }
                 ConfigDao.flagDefinir(matricula, flag, s.matricula, agora);
+                AuthFilter.invalidarPerfis(); // BLOQUEADO/SOMENTE_LEITURA valem já
                 Http.json(resp, Json.obj().put("ok", true).fim());
                 return;
             }

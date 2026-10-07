@@ -32,6 +32,30 @@ public class AuthFilter implements Filter {
     /** Validade do cache da Sessao na HttpSession (perfil muda raramente). */
     private static final long CACHE_MS = 60_000L;
 
+    /** Geração dos perfis: incrementa quando masters/flags mudam e invalida os caches. */
+    private static volatile long geracaoPerfis = 0;
+
+    public static void invalidarPerfis() { geracaoPerfis++; }
+
+    /** Normaliza "." e ".." do caminho; null quando tenta sair da raiz. */
+    public static String normalizar(String caminho) {
+        if (caminho.indexOf("/.") < 0 && caminho.indexOf("//") < 0) return caminho;
+        java.util.ArrayDeque<String> partes = new java.util.ArrayDeque<>();
+        for (String p : caminho.split("/")) {
+            if (p.isEmpty() || p.equals(".")) continue;
+            if (p.equals("..")) {
+                if (partes.isEmpty()) return null;
+                partes.removeLast();
+            } else {
+                partes.addLast(p);
+            }
+        }
+        StringBuilder sb = new StringBuilder();
+        for (String p : partes) sb.append('/').append(p);
+        if (caminho.endsWith("/") && sb.length() > 0) sb.append('/');
+        return sb.length() == 0 ? "/" : sb.toString();
+    }
+
     @Override
     public void doFilter(ServletRequest sreq, ServletResponse sresp, FilterChain chain)
             throws IOException, ServletException {
@@ -39,6 +63,13 @@ public class AuthFilter implements Filter {
         HttpServletResponse resp = (HttpServletResponse) sresp;
         if (req.getCharacterEncoding() == null) req.setCharacterEncoding("UTF-8");
         String caminho = req.getRequestURI().substring(req.getContextPath().length());
+        // getRequestURI vem sem normalizar: "/css/../api/x" não pode passar
+        // pela isenção dos estáticos — normaliza e recusa qualquer ".."
+        caminho = normalizar(caminho);
+        if (caminho == null) {
+            Http.erro(resp, 400, "Caminho inválido.");
+            return;
+        }
 
         // página de acesso negado é standalone (o usuário pode nem existir);
         // estáticos não carregam dados — não precisam de perfil
@@ -62,11 +93,13 @@ public class AuthFilter implements Filter {
         Sessao sessao = (Sessao) req.getAttribute("sessao");
         if (sessao == null) {
             HttpSession http = req.getSession(false);
-            // cache por sessão HTTP, com validade curta
+            // cache por sessão HTTP, com validade curta — e descartado na hora
+            // quando o Admin mexe em masters/flags (geração de perfis)
             if (http != null) {
                 Object[] cache = (Object[]) http.getAttribute("sessao.atlas");
                 if (cache != null
-                        && System.currentTimeMillis() - (Long) cache[1] < CACHE_MS) {
+                        && System.currentTimeMillis() - (Long) cache[1] < CACHE_MS
+                        && (Long) cache[2] == geracaoPerfis) {
                     sessao = (Sessao) cache[0];
                 }
             }
@@ -75,11 +108,11 @@ public class AuthFilter implements Filter {
                 if (usuarioSso != null) {
                     sessao = Sessao.montar(usuarioSso);
                 } else if (devSimular) {
-                    sessao = Sessao.montar("F3548926", "Desenvolvedor (simulado)", "9007", "DEV");
+                    sessao = simulada(req);
                 }
                 if (sessao != null) {
                     req.getSession(true).setAttribute("sessao.atlas",
-                        new Object[] { sessao, System.currentTimeMillis() });
+                        new Object[] { sessao, System.currentTimeMillis(), geracaoPerfis });
                 }
             }
         }
@@ -101,6 +134,28 @@ public class AuthFilter implements Filter {
 
         req.setAttribute("sessao", sessao);
         chain.doFilter(sreq, sresp);
+    }
+
+    /**
+     * SÓ no WAR de desenvolvimento (atlas.dev.simular=true, sem SSO): usuário
+     * simulado. `?perfil=COLEGA|MODERADOR|MASTER` troca o perfil para testar
+     * o que cada um enxerga; a escolha fica na HttpSession.
+     */
+    private static Sessao simulada(HttpServletRequest req) {
+        HttpSession http = req.getSession(true);
+        String pedido = req.getParameter("perfil");
+        if (pedido != null) {
+            http.setAttribute("dev.perfil", pedido.trim().toUpperCase());
+            http.removeAttribute("sessao.atlas"); // perfil novo: descarta o cache
+        }
+        String perfil = String.valueOf(http.getAttribute("dev.perfil"));
+        if ("COLEGA".equals(perfil)) {
+            return Sessao.montar("F0000002", "Colega (simulado)", "9101", "DEV");
+        }
+        if ("MODERADOR".equals(perfil)) {
+            return Sessao.montar("F0000001", "Moderador (simulado)", "9007", "DEV");
+        }
+        return Sessao.montar("F3548926", "Desenvolvedor (simulado)", "9007", "DEV");
     }
 
     @Override

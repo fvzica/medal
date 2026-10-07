@@ -11,19 +11,26 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Admin · Atlas Estilo</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230b1324'/%3E%3Ccircle cx='16' cy='16' r='7' fill='%23f5c518'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;0,9..144,800;0,9..144,900;1,9..144,400&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="css/atlas.css">
 </head>
 <body>
 <%@ include file="/WEB-INF/jspf/header.jspf" %>
 
-<main class="palco">
-  <div class="painel-titulo" style="margin-bottom:14px">
-    <h2 style="font-size:26px">Administração</h2>
-    <span class="rotulo">fontes CSV do servidor · visões do dashboard · fotos · acessos</span>
+<header class="topo">
+  <button class="botao-icone so-mobile" id="abrir-menu" type="button" aria-label="Menu">
+    <svg class="ico" viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+  </button>
+  <div class="topo-titulo">
+    <h1>Administração</h1>
+    <small>fontes CSV do servidor · visões do dashboard · fotos · acessos</small>
   </div>
+</header>
+
+<main class="conteudo">
 
   <!-- ================================================ PASTA DE CSV -->
   <h3 style="margin:8px 0 10px">Pasta de CSV no servidor</h3>
@@ -256,6 +263,8 @@
     </tr></thead><tbody id="corpo-importlog"></tbody></table>
   </div></div>
 </main>
+</div><!-- /principal -->
+</div><!-- /app -->
 
 <div class="toast" id="toast"></div>
 <script>window.ATLAS_CTX = '<%= request.getContextPath() %>';</script>

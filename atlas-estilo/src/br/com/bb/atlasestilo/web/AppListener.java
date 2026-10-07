@@ -51,9 +51,10 @@ public class AppListener implements ServletContextListener {
         Db.iniciar(dbPath);
         executarSchema(ctx);
         try {
+            br.com.bb.atlasestilo.db.Migracoes.aplicar();
             br.com.bb.atlasestilo.dao.ConfigDao.semearMastersSeVazio();
         } catch (java.sql.SQLException e) {
-            throw new IllegalStateException("Falha na carga inicial de masters.", e);
+            throw new IllegalStateException("Falha na migração/carga inicial.", e);
         }
 
         boolean exemplo = "true".equalsIgnoreCase(

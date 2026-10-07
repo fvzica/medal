@@ -109,6 +109,18 @@ CREATE TABLE IF NOT EXISTS ponto_melhoria (
 );
 CREATE INDEX IF NOT EXISTS idx_ponto_prefixo ON ponto_melhoria(prefixo);
 
+-- Linha do tempo de uma ação (ponto_melhoria): comentários de retorno e
+-- mudanças de status, para o Master acompanhar a cobrança.
+CREATE TABLE IF NOT EXISTS acao_atualizacao (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  ponto_id    INTEGER NOT NULL,
+  texto       TEXT,
+  status_novo TEXT,
+  criado_por  TEXT,
+  criado_em   INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_acao_atu_ponto ON acao_atualizacao(ponto_id);
+
 CREATE TABLE IF NOT EXISTS foto (
   id         TEXT PRIMARY KEY,
   prefixo    TEXT NOT NULL,

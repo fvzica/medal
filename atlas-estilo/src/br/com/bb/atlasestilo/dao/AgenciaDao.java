@@ -28,7 +28,8 @@ public final class AgenciaDao {
             "              AND v.status = 'REALIZADA') AS visitada, " +
             "       EXISTS(SELECT 1 FROM visita v WHERE v.prefixo = a.prefixo " +
             "              AND v.status = 'PLANEJADA') AS planejada, " +
-            "       EXISTS(SELECT 1 FROM foto f WHERE f.prefixo = a.prefixo) AS tem_foto, " +
+            "       EXISTS(SELECT 1 FROM foto f WHERE f.prefixo = a.prefixo AND f.restrita = 0) AS tem_foto, " +
+            "       EXISTS(SELECT 1 FROM foto f WHERE f.prefixo = a.prefixo AND f.restrita = 1) AS tem_foto_restrita, " +
             "       (SELECT COUNT(*) FROM ponto_melhoria p WHERE p.prefixo = a.prefixo " +
             "              AND p.status <> 'RESOLVIDO') AS pontos_abertos, " +
             "       (SELECT COUNT(*) FROM funci f WHERE f.prefixo = a.prefixo) AS funcis " +
@@ -39,10 +40,14 @@ public final class AgenciaDao {
         try (Connection c = Db.conexao(); PreparedStatement ps = c.prepareStatement(sql)) {
             sel.aplicar(ps, 1);
             try (ResultSet rs = ps.executeQuery()) {
+                boolean master = s != null && s.master();
                 while (rs.next()) {
-                    boolean visitada = rs.getInt("visitada") == 1;
-                    boolean temFoto = rs.getInt("tem_foto") == 1;
-                    int pontos = rs.getInt("pontos_abertos");
+                    // visitas, planos e ações são registros do Master: os outros perfis não os veem
+                    boolean visitada = master && rs.getInt("visitada") == 1;
+                    // foto restrita (de visita) só conta para quem pode vê-la
+                    boolean temFoto = rs.getInt("tem_foto") == 1
+                        || (master && rs.getInt("tem_foto_restrita") == 1);
+                    int pontos = master ? rs.getInt("pontos_abertos") : 0;
                     String uf = rs.getString("uf");
                     agencias.add(Json.obj()
                         .put("prefixo", rs.getString("prefixo"))
@@ -53,7 +58,7 @@ public final class AgenciaDao {
                         .putNum("lng", (Double) obj(rs, "lng"))
                         .put("regional", rs.getString("regional"))
                         .put("visitada", visitada)
-                        .put("planejada", rs.getInt("planejada") == 1)
+                        .put("planejada", master && rs.getInt("planejada") == 1)
                         .put("temFoto", temFoto)
                         .put("pontosAbertos", pontos)
                         .put("funcis", rs.getInt("funcis"))
@@ -126,7 +131,7 @@ public final class AgenciaDao {
                         .put("municipio", rs.getString("municipio"))
                         .put("agencias", rs.getInt("agencias"))
                         .put("funcis", rs.getInt("funcis"))
-                        .put("visitadas", rs.getInt("visitadas"))
+                        .put("visitadas", s != null && s.master() ? rs.getInt("visitadas") : 0)
                         .fim());
                 }
             }

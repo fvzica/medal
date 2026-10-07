@@ -73,8 +73,9 @@ public final class MetricaDao {
                     .put("pdgGanhos", rs.getInt("pdg_ganhos"))
                     .put("pdgAgencias", rs.getInt("pdg_agencias"))
                     .put("pdgSemestres", rs.getInt("pdg_semestres"))
-                    .put("visitadas", rs.getInt("visitadas"))
-                    .put("pontosAbertos", rs.getInt("pontos_abertos"))
+                    // registros do Master (visitas e ações) só aparecem para o Master
+                    .put("visitadas", s.master() ? rs.getInt("visitadas") : 0)
+                    .put("pontosAbertos", s.master() ? rs.getInt("pontos_abertos") : 0)
                     .fim();
             }
         }
@@ -202,7 +203,7 @@ public final class MetricaDao {
                         .put("assistentes", rs.getInt("assistentes"))
                         .put("carteiras", rs.getInt("carteiras"))
                         .put("pdgGanhos", rs.getInt("pdg_ganhos"))
-                        .put("visitada", rs.getInt("visitada") == 1)
+                        .put("visitada", s.master() && rs.getInt("visitada") == 1)
                         .fim());
                 }
             }

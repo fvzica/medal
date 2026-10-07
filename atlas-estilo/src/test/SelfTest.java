@@ -44,6 +44,16 @@ public final class SelfTest {
                 new File("WebContent/WEB-INF/sql/schema.sql"))) {
             AppListener.executarSql(schema);
         }
+        // migrações de coluna (idempotentes): rodam duas vezes para provar que
+        // uma base já migrada não quebra na subida seguinte
+        br.com.bb.atlasestilo.db.Migracoes.aplicar();
+        br.com.bb.atlasestilo.db.Migracoes.aplicar();
+        verifica("migração adiciona colunas do checklist",
+                contar("SELECT COUNT(*) FROM pragma_table_info('visita') WHERE name IN " +
+                       "('ambiencia','nota_geral','melhorias','percepcao','claros')") == 5
+                && contar("SELECT COUNT(*) FROM pragma_table_info('foto') WHERE name IN ('visita_id','restrita')") == 2
+                && contar("SELECT COUNT(*) FROM pragma_table_info('ponto_melhoria') WHERE name IN " +
+                          "('visita_id','responsavel','prioridade')") == 3);
         br.com.bb.atlasestilo.dao.ConfigDao.semearMastersSeVazio();
         DadosExemplo.semear();
         long agora = System.currentTimeMillis();
@@ -110,6 +120,9 @@ public final class SelfTest {
                 && planejamento.contains("Teste de ponto"));
         verifica("ponto resolvido", GestaoDao.pontoAtualizar(idPonto, "RESOLVIDO",
                 "Resolvido no teste", null, agora));
+
+        // ------------------------------- visitas com checklist, fotos e ações
+        testarVisitasEAcoes(master, moderador, colega, idVisita, agora);
 
         // ------------------------------------------------------------ imports
         String csv = "prefixo;nome;uf;municipio;regional\n" +
@@ -201,6 +214,142 @@ public final class SelfTest {
 
     private static boolean igual(Double a, double b) {
         return a != null && Math.abs(a - b) < 1e-9;
+    }
+
+    // ------------------------------------------- visitas, fotos e ações
+
+    private static void testarVisitasEAcoes(Sessao master, Sessao moderador, Sessao colega,
+                                            long idVisitaAnterior, long agora) throws Exception {
+        final long dia = 86400000L;
+
+        // visita realizada com checklist completo
+        GestaoDao.Checklist ck = new GestaoDao.Checklist();
+        ck.ambiencia = 4; ck.atendimento = 5; ck.organizacao = 3; ck.equipe = 4;
+        ck.movimento = "CHEIA"; ck.claros = 2; ck.notaGeral = 8.5;
+        ck.melhorias = "Fachada|Sala Estilo"; ck.percepcao = "Equipe motivada, fila no caixa.";
+        long idVisita = GestaoDao.visitaCriar("9101", "REALIZADA", null, agora + dia,
+                "Visita com checklist", "F3548926", agora + dia, ck);
+        verifica("visita com checklist criada", idVisita > 0);
+        String visitas = GestaoDao.visitas("9101");
+        verifica("visita expõe checklist no JSON", visitas.contains("\"notaGeral\":8.5")
+                && visitas.contains("\"claros\":2")
+                && visitas.contains("\"movimento\":\"CHEIA\"")
+                && visitas.contains("\"melhorias\":[\"Fachada\",\"Sala Estilo\"]"));
+        verifica("prefixo da visita", "9101".equals(GestaoDao.visitaPrefixo(idVisita)));
+
+        // atualizar só o resumo não apaga o checklist (COALESCE)
+        verifica("atualizar visita sem checklist", GestaoDao.visitaAtualizar(idVisita, "REALIZADA",
+                null, agora + dia, "Resumo alterado", agora + dia, new GestaoDao.Checklist()));
+        visitas = GestaoDao.visitas("9101");
+        verifica("checklist preservado após atualização", visitas.contains("\"notaGeral\":8.5")
+                && visitas.contains("Resumo alterado"));
+
+        // evolução entre visitas: a anterior (sem nota) + esta (8,5) aparecem no histórico
+        verifica("duas visitas realizadas no histórico", ocorrencias(visitas, "\"REALIZADA\"") >= 2);
+
+        // foto da visita: restrita ao Master
+        br.com.bb.atlasestilo.dao.FotoDao.inserir("foto-teste-1", "9101", null, "INTERNA",
+                "Sala Estilo", "foto-teste-1.jpg", "image/jpeg", "F3548926", agora, idVisita, true);
+        br.com.bb.atlasestilo.dao.FotoDao.inserir("foto-teste-2", "9101", null, "FACHADA",
+                "Fachada", "foto-teste-2.jpg", "image/jpeg", "F3548926", agora);
+        String fotosMaster = br.com.bb.atlasestilo.dao.FotoDao.listar("9101", true, true);
+        String fotosModerador = br.com.bb.atlasestilo.dao.FotoDao.listar("9101", true, false);
+        String fotosColega = br.com.bb.atlasestilo.dao.FotoDao.listar("9101", false, false);
+        verifica("master vê a foto restrita", fotosMaster.contains("foto-teste-1")
+                && fotosMaster.contains("\"restrita\":true") && fotosMaster.contains("foto-teste-2"));
+        verifica("moderador não vê foto restrita", !fotosModerador.contains("foto-teste-1")
+                && fotosModerador.contains("foto-teste-2"));
+        verifica("colega não vê foto restrita", !fotosColega.contains("foto-teste-1"));
+        String[] meta = br.com.bb.atlasestilo.dao.FotoDao.obter("foto-teste-1");
+        verifica("foto restrita marcada p/ o servlet", meta != null && "1".equals(meta[3]));
+        verifica("fotos da visita", br.com.bb.atlasestilo.dao.FotoDao.daVisita(idVisita).contains("foto-teste-1"));
+
+        // ação ligada à visita, com dono, prazo e prioridade
+        long idAcao = GestaoDao.pontoCriar("9101", "Trocar letreiro da fachada", agora - 2 * dia,
+                "F3548926", agora, idVisita, "Ger. Geral", "ALTA");
+        verifica("ação criada", idAcao > 0);
+        String acoes = GestaoDao.acoes("9101", "PENDENTES", null, null, null, agora);
+        verifica("ação com dono/prioridade/visita", acoes.contains("\"prioridade\":\"ALTA\"")
+                && acoes.contains("\"responsavel\":\"Ger. Geral\"")
+                && acoes.contains("\"visitaId\":" + idVisita)
+                && acoes.contains("\"vencida\":true"));
+        verifica("filtro de vencidas", GestaoDao.acoes(null, "PENDENTES", "VENCIDAS", null, null, agora)
+                .contains("Trocar letreiro"));
+        verifica("filtro de prioridade", !GestaoDao.acoes("9101", "PENDENTES", null, null, "BAIXA", agora)
+                .contains("Trocar letreiro"));
+        verifica("prioridade inválida vira MEDIA", "MEDIA".equals(GestaoDao.prioridadeValida("URGENTE")));
+
+        // follow-up: retorno + mudança de status na linha do tempo
+        long idRet = GestaoDao.pontoComentar(idAcao, "Gerente orçou com fornecedor", "EM_TRATATIVA",
+                "F3548926", agora + 1000);
+        verifica("retorno registrado", idRet > 0);
+        String timeline = GestaoDao.atualizacoes(idAcao);
+        verifica("linha do tempo da ação", timeline.contains("orçou com fornecedor")
+                && timeline.contains("\"statusNovo\":\"EM_TRATATIVA\""));
+        acoes = GestaoDao.acoes("9101", "EM_TRATATIVA", null, null, null, agora);
+        verifica("status mudou pelo retorno", acoes.contains("Trocar letreiro")
+                && acoes.contains("\"atualizacoes\":1"));
+        verifica("editar dono e prioridade", GestaoDao.pontoAtualizar(idAcao, null, null, agora + 10 * dia,
+                agora, "Ger. Adm", "MEDIA", null));
+        acoes = GestaoDao.acoes("9101", "PENDENTES", "30DIAS", null, null, agora);
+        verifica("ação reprogramada vence em 30 dias", acoes.contains("\"responsavel\":\"Ger. Adm\"")
+                && acoes.contains("\"vencida\":false"));
+
+        // planejamento: KPIs, agenda e evolução
+        String plan = GestaoDao.planejamento(agora);
+        verifica("planejamento traz KPIs", plan.contains("\"kpis\":{") && plan.contains("\"acoesAbertas\":")
+                && plan.contains("\"acoesVencidas\":") && plan.contains("\"notaMedia\":")
+                && plan.contains("\"agendaSemana\":"));
+        verifica("planejamento traz evolução, frias e vencendo", plan.contains("\"evolucao\":[")
+                && plan.contains("\"frias\":[") && plan.contains("\"acoesVencendo\":["));
+
+        // exports CSV
+        String csvV = GestaoDao.csvVisitas();
+        verifica("CSV de visitas", csvV.startsWith("prefixo;agencia;") && csvV.contains("\n9101;")
+                && csvV.contains("Fachada | Sala Estilo") && csvV.contains("CHEIA"));
+        String csvA = GestaoDao.csvAcoes(agora);
+        verifica("CSV de ações", csvA.startsWith("id;prefixo;") && csvA.contains("Trocar letreiro")
+                && csvA.contains("no prazo") && csvA.contains(";Ger. Adm;"));
+
+        // privacidade: só o Master enxerga visitas/ações nos agregados
+        String mapaMaster = AgenciaDao.mapa(master);
+        String mapaModerador = AgenciaDao.mapa(moderador);
+        verifica("mapa do master marca a visitada e conta ações", mapaMaster.contains("\"visitada\":true")
+                && mapaMaster.matches("(?s).*\"pontosAbertos\":[1-9].*"));
+        verifica("mapa do moderador não revela visitas nem ações",
+                !mapaModerador.contains("\"visitada\":true") && !mapaModerador.contains("\"planejada\":true")
+                && !mapaModerador.contains("\"visitadas\":1") && !mapaModerador.matches("(?s).*\"pontosAbertos\":[1-9].*"));
+        String resumoMaster = MetricaDao.resumo(master, Selecao.de(master, "SP", null, null, null), agora);
+        String resumoModerador = MetricaDao.resumo(moderador, Selecao.de(moderador, "SP", null, null, null), agora);
+        verifica("resumo do master conta visitas", !resumoMaster.contains("\"visitadas\":0"));
+        verifica("resumo do moderador zera visitas e ações", resumoModerador.contains("\"visitadas\":0")
+                && resumoModerador.contains("\"pontosAbertos\":0"));
+        String listaColega = MetricaDao.lista(colega, Selecao.de(colega, "SP", null, null, null), "agencias", agora);
+        verifica("lista de agências do colega sem visitadas", !listaColega.contains("\"visitada\":true"));
+
+        // mapa: agência cuja única foto é restrita não aparece "com foto" para quem não a vê
+        br.com.bb.atlasestilo.dao.FotoDao.inserir("foto-teste-3", "9105", null, "INTERNA",
+                "Só da visita", "foto-teste-3.jpg", "image/jpeg", "F3548926", agora, idVisitaAnterior, true);
+        String agMaster = objetoDe(AgenciaDao.mapa(master), "\"prefixo\":\"9105\"");
+        String agModerador = objetoDe(AgenciaDao.mapa(moderador), "\"prefixo\":\"9105\"");
+        verifica("temFoto não revela foto restrita", agMaster.contains("\"temFoto\":true")
+                && agModerador.contains("\"temFoto\":false"));
+        verifica("normalização de caminho do filtro",
+                "/api/mapa".equals(br.com.bb.atlasestilo.web.AuthFilter.normalizar("/css/../api/mapa"))
+                && br.com.bb.atlasestilo.web.AuthFilter.normalizar("/../x") == null
+                && "/css/a.css".equals(br.com.bb.atlasestilo.web.AuthFilter.normalizar("/css/./a.css"))
+                && "/js/atlas.js".equals(br.com.bb.atlasestilo.web.AuthFilter.normalizar("/js/atlas.js")));
+
+        // excluir a visita apaga as fotos dela e solta a ação (que não some)
+        List<String> arquivos = br.com.bb.atlasestilo.dao.FotoDao.excluirDaVisita(idVisita);
+        verifica("fotos da visita excluídas junto", arquivos.size() == 1 && arquivos.get(0).equals("foto-teste-1.jpg")
+                && contar("SELECT COUNT(*) FROM foto WHERE id='foto-teste-2'") == 1);
+        verifica("excluir visita", GestaoDao.visitaExcluir(idVisita));
+        acoes = GestaoDao.acoes("9101", "PENDENTES", null, null, null, agora);
+        verifica("ação sobrevive à visita excluída", acoes.contains("Trocar letreiro")
+                && acoes.contains("\"visitaId\":null"));
+        verifica("excluir ação apaga linha do tempo", GestaoDao.pontoExcluir(idAcao)
+                && contar("SELECT COUNT(*) FROM acao_atualizacao WHERE ponto_id=" + idAcao) == 0);
     }
 
     // ------------------------------------------------------------ saneador
@@ -405,6 +554,13 @@ public final class SelfTest {
         int n = 0, i = 0;
         while ((i = s.indexOf(trecho, i)) >= 0) { n++; i += trecho.length(); }
         return n;
+    }
+
+    /** Objeto JSON (plano) que contém o trecho: do '{' anterior ao '}' seguinte. */
+    private static String objetoDe(String json, String trecho) {
+        int i = json.indexOf(trecho);
+        if (i < 0) return "";
+        return json.substring(json.lastIndexOf('{', i), json.indexOf('}', i) + 1);
     }
 
     /** .xlsx mínimo com sharedStrings e uma planilha de 2 linhas. */

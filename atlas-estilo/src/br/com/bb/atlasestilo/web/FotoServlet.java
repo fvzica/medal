@@ -15,7 +15,8 @@ import br.com.bb.atlasestilo.util.Http;
 
 /**
  * Serve as fotos por id (/foto/{id}), sempre autenticado e nunca pelo nome
- * original. Fotos de PESSOA só para Master/Moderador (LGPD).
+ * original. Fotos de PESSOA só para Master/Moderador (LGPD); fotos de visita
+ * (restritas) só para Master.
  */
 public class FotoServlet extends HttpServlet {
 
@@ -25,6 +26,7 @@ public class FotoServlet extends HttpServlet {
     protected void doGet(HttpServletRequest req, HttpServletResponse resp)
             throws IOException {
         Sessao s = Sessao.de(req);
+        if (s == null) { Http.erro(resp, 403, "Acesso negado."); return; }
         String[] cam = Http.caminho(req);
         if (cam.length == 0 || !cam[0].matches("[0-9a-f]{32}")) {
             Http.erro(resp, 404, "Foto não encontrada.");
@@ -40,6 +42,11 @@ public class FotoServlet extends HttpServlet {
         if (meta == null) { Http.erro(resp, 404, "Foto não encontrada."); return; }
         if ("PESSOA".equals(meta[2]) && !s.veTudo()) {
             Http.erro(resp, 403, "Seu perfil não visualiza fotos de pessoas.");
+            return;
+        }
+        // fotos registradas pelo Master nas visitas: só Master
+        if ("1".equals(meta[3]) && !s.master()) {
+            Http.erro(resp, 403, "Foto restrita à gestão.");
             return;
         }
         File dir = new File(String.valueOf(

@@ -88,6 +88,11 @@
     return new Date(+p[0], +p[1] - 1, +p[2], 12).getTime();
   }
 
+  function isoLocal(ms) { // epoch -> AAAA-MM-DD no fuso do usuário (p/ input date)
+    var d = new Date(ms), m = d.getMonth() + 1, dia = d.getDate();
+    return d.getFullYear() + '-' + (m < 10 ? '0' : '') + m + '-' + (dia < 10 ? '0' : '') + dia;
+  }
+
   // ------------------------------------------- visões configuradas / Conexão
 
   var MESES_CURTOS = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
@@ -307,8 +312,8 @@
         var html;
         if (resumo) {
           html = '<strong>' + esc(UF_NOMES[uf] || uf) + '</strong>' +
-            resumo.agencias + ' agência(s) · ' + resumo.funcis + ' funcis · ' +
-            resumo.visitadas + ' visitada(s)';
+            resumo.agencias + ' agência(s) · ' + resumo.funcis + ' funcis' +
+            (App.contexto.master ? ' · ' + resumo.visitadas + ' visitada(s)' : '');
         } else {
           html = '<strong>' + esc(UF_NOMES[uf] || uf) + '</strong>sem agência Estilo na jurisdição';
         }
@@ -325,23 +330,51 @@
     aplicarViewBox(App.vbBrasil);
   }
 
+  /**
+   * Agências praticamente no mesmo ponto (mesma cidade grande) viram uma
+   * roseta: cada uma recebe um deslocamento em círculo para não se cobrirem.
+   */
+  function espalharPins(itens, raio) {
+    var grupos = [];
+    itens.forEach(function (it) {
+      var g = grupos.filter(function (gr) {
+        return Math.abs(gr.cx - it.p[0]) < raio * 1.2 && Math.abs(gr.cy - it.p[1]) < raio * 1.2;
+      })[0];
+      if (!g) { g = { cx: it.p[0], cy: it.p[1], itens: [] }; grupos.push(g); }
+      g.itens.push(it);
+    });
+    grupos.forEach(function (gr) {
+      if (gr.itens.length < 2) return;
+      var n = gr.itens.length, r = raio * (n > 4 ? 1.6 : 1.15);
+      gr.itens.forEach(function (it, i) {
+        var ang = -Math.PI / 2 + (2 * Math.PI * i) / n;
+        it.p = [gr.cx + r * Math.cos(ang), gr.cy + r * Math.sin(ang)];
+        it.agrupado = true; // sem rótulo: o tooltip identifica cada pin da roseta
+      });
+    });
+  }
+
   function desenharPins(uf, municipio) {
     var NS = 'http://www.w3.org/2000/svg';
     var g = $('#g-pins');
     g.innerHTML = '';
     var rotulados = []; // posições com rótulo, p/ suprimir colisões
-    App.mapa.agencias.forEach(function (a) {
-      if (a.uf !== uf || a.lat == null || a.lng == null) return;
-      var p = App.proj(a.lng, a.lat);
+    var escalaPin = Math.max(App.vb.w / 1000, .22);
+    var itens = App.mapa.agencias.filter(function (a) {
+      return a.uf === uf && a.lat != null && a.lng != null;
+    }).map(function (a) { return { a: a, p: App.proj(a.lng, a.lat) }; });
+    espalharPins(itens, 4.5 * escalaPin * 3);
+    itens.forEach(function (it) {
+      var a = it.a, p = it.p;
       var apagada = municipio && a.municipio !== municipio;
       var pin = document.createElementNS(NS, 'g');
-      pin.setAttribute('class', 'pin' + (a.visitada ? ' visitada' : ''));
+      pin.setAttribute('class', 'pin' + (a.visitada ? ' visitada' : '') + (a.planejada ? ' planejada' : ''));
       pin.setAttribute('transform', 'translate(' + p[0] + ',' + p[1] + ')');
       if (apagada) pin.setAttribute('opacity', '.25');
       var escala = Math.max(App.vb.w / 1000, .22);
       // rótulo só quando não colide com outro já desenhado (o tooltip cobre o resto)
       var minDist = 34 * escala * 3;
-      var cabeRotulo = !apagada && !rotulados.some(function (q) {
+      var cabeRotulo = !apagada && !it.agrupado && !rotulados.some(function (q) {
         return Math.abs(q[0] - p[0]) < minDist * 2.4 && Math.abs(q[1] - p[1]) < minDist * .55;
       });
       if (cabeRotulo) rotulados.push(p);
@@ -360,9 +393,12 @@
       pin.addEventListener('mousemove', function (ev) {
         mostrarDica(ev, '<strong>' + esc(a.nome) + '</strong>' +
           'Prefixo ' + esc(a.prefixo) + ' · ' + esc(a.municipio || '') +
-          '<br>' + a.funcis + ' funcis · ' +
-          (a.visitada ? '✓ visitada' : 'ainda não visitada') +
-          (a.pontosAbertos ? ' · ' + a.pontosAbertos + ' ponto(s) aberto(s)' : ''));
+          '<br>' + a.funcis + ' funcis' +
+          (App.contexto.master
+            ? ' · ' + (a.visitada ? '✓ visitada' : 'ainda não visitada') +
+              (a.planejada ? ' · 📅 visita planejada' : '') +
+              (a.pontosAbertos ? ' · ' + a.pontosAbertos + ' ação(ões) em aberto' : '')
+            : ''));
       });
       pin.addEventListener('mouseleave', esconderDica);
       g.appendChild(pin);
@@ -530,11 +566,13 @@
     h += '</div>';
     h += visoesHtml(resumo.visoes, 'Visões configuradas no admin');
 
-    h += '<div class="chips" style="margin-top:2px">' +
-      '<span class="badge verde">✓ ' + fmtInt(resumo.visitadas) + ' visitada(s)</span>' +
-      '<span class="badge ' + (resumo.pontosAbertos ? 'vinho' : 'neutro') + '">' +
-      (resumo.pontosAbertos ? '⚑ ' : '') + fmtInt(resumo.pontosAbertos) +
-      ' ponto(s) de melhoria aberto(s)</span></div>';
+    if (App.contexto.master) {
+      h += '<div class="chips so-master" style="margin-top:2px">' +
+        '<span class="badge verde">✓ ' + fmtInt(resumo.visitadas) + ' visitada(s)</span>' +
+        '<span class="badge ' + (resumo.pontosAbertos ? 'vinho' : 'neutro') + '">' +
+        (resumo.pontosAbertos ? '⚑ ' : '') + fmtInt(resumo.pontosAbertos) +
+        ' ação(ões) em aberto</span></div>';
+    }
 
     if (municipios && municipios.length > 1) {
       h += '<p class="rotulo" style="margin:14px 0 4px">Municípios</p><div class="chips">';
@@ -554,7 +592,9 @@
     agencias.forEach(function (a) {
       h += '<button class="item-agencia' + (a.visitada ? ' visitada' : '') +
         '" type="button" data-prefixo="' + esc(a.prefixo) + '">' +
-        '<span class="selo-visita" title="' + (a.visitada ? 'visitada' : 'não visitada') + '"></span>' +
+        (App.contexto.master
+          ? '<span class="selo-visita" title="' + (a.visitada ? 'visitada' : 'não visitada') + '"></span>'
+          : '<span class="selo-visita neutro" title="agência Estilo"></span>') +
         '<span><span class="nome">' + esc(a.nome) + '</span>' +
         '<small>' + esc(a.prefixo) + ' · ' + esc(a.municipio || '') + '/' + esc(a.uf || '') + '</small></span>' +
         '<span class="numeros">' + a.funcis + ' funcis<br>' + a.pdgGanhos + '× PDG</span>' +
@@ -659,16 +699,42 @@
 
   // -------------------------------------------------------- drawer agência
 
-  function abrirAgencia(prefixo) {
+  /**
+   * Abre (ou recarrega) o drawer da agência. `estado` (opcional) devolve o
+   * usuário à mesma aba e à mesma rolagem depois de salvar algo.
+   */
+  function abrirAgencia(prefixo, estado) {
+    var drawer = $('#drawer-agencia');
     $('#veu').classList.add('aberto');
-    $('#drawer-agencia').classList.add('aberto');
-    $('#ag-corpo').innerHTML = '<div class="carregando">Abrindo a agência…</div>';
+    drawer.classList.add('aberto');
+    if (!estado) $('#ag-corpo').innerHTML = '<div class="carregando">Abrindo a agência…</div>';
     api('agencia/' + prefixo).then(function (d) {
       App.agencia = d;
       renderAgencia(d);
+      if (estado) {
+        if (estado.aba) ativarAba(estado.aba);
+        drawer.scrollTop = estado.rolagem || 0;
+      } else {
+        drawer.scrollTop = 0;
+      }
     }).catch(function (e) {
       $('#ag-corpo').innerHTML = '<div class="aviso">' + esc(e.message) + '</div>';
     });
+  }
+
+  function ativarAba(nome) {
+    var botao = $('#ag-abas button[data-aba="' + nome + '"]');
+    if (!botao) return;
+    $$('#ag-abas button').forEach(function (x) { x.classList.toggle('ativa', x === botao); });
+    $$('.aba-corpo', $('#ag-corpo')).forEach(function (c) {
+      c.classList.toggle('ativa', c.getAttribute('data-corpo') === nome);
+    });
+  }
+
+  /** Estado atual do drawer (aba ativa + rolagem) para restaurar após recarregar. */
+  function estadoDrawer() {
+    var ativa = $('#ag-abas button.ativa');
+    return { aba: ativa ? ativa.getAttribute('data-aba') : null, rolagem: $('#drawer-agencia').scrollTop };
   }
 
   function fecharAgencia() {
@@ -706,7 +772,11 @@
 
     var veTudo = App.contexto.veTudo;
     var h = fachadaHtml(d);
+    // briefing "antes de ir" (só Master; vazio para os demais)
+    h += briefingHtml(d);
 
+    var abertas = (d.pontos || []).filter(function (p) { return p.status !== 'RESOLVIDO'; });
+    var vencidas = abertas.filter(function (p) { return p.vencida; });
     h += '<div class="cartao"><div class="cartao-corpo">';
     h += '<div class="abas" id="ag-abas">';
     h += '<button data-aba="geral" class="ativa">Visão geral</button>';
@@ -716,9 +786,9 @@
     }
     h += '<button data-aba="fotos">Fotos · ' + (d.fotos || []).length + '</button>';
     if (App.contexto.master) {
-      h += '<button data-aba="visitas">Visitas &amp; anotações</button>';
-      h += '<button data-aba="pontos">Pontos · ' +
-        (d.pontos || []).filter(function (p) { return p.status !== 'RESOLVIDO'; }).length +
+      h += '<button data-aba="visitas">Visitas · ' + realizadas(d).length + '</button>';
+      h += '<button data-aba="acoes">Ações · ' + abertas.length +
+        (vencidas.length ? ' <span class="badge vinho mini">' + vencidas.length + ' vencida(s)</span>' : '') +
         '</button>';
     }
     h += '</div>';
@@ -778,23 +848,29 @@
     // --- fotos
     h += '<div class="aba-corpo" data-corpo="fotos">';
     if ((d.fotos || []).length) {
+      var restritas = d.fotos.filter(function (f) { return f.restrita; }).length;
+      if (restritas) {
+        h += '<p class="rotulo" style="margin:12px 0 0">' + restritas +
+          ' foto(s) de visita · <span class="badge ouro mini">restritas aos Masters</span></p>';
+      }
       h += '<div class="galeria" style="margin-top:14px">';
       d.fotos.forEach(function (f) {
-        h += '<figure><img loading="lazy" src="' + CTX + '/foto/' + esc(f.id) +
+        h += '<figure' + (f.restrita ? ' class="restrita" title="visível só para Masters"' : '') + '>' +
+          '<img loading="lazy" src="' + CTX + '/foto/' + esc(f.id) +
           '" alt="" onclick="window.open(this.src)">' +
-          '<figcaption>' + esc(f.legenda || f.tipo) + '</figcaption></figure>';
+          '<figcaption>' + (f.restrita ? '🔒 ' : '') + esc(f.legenda || f.tipo) + '</figcaption></figure>';
       });
       h += '</div>';
     } else {
       h += '<div class="vazio">Nenhuma foto ainda' +
-        (App.contexto.master ? ' — suba as suas na tela Admin.' : '.') + '</div>';
+        (App.contexto.master ? ' — registre uma visita e anexe fotos, ou suba as institucionais na tela Admin.' : '.') + '</div>';
     }
     h += '</div>';
 
-    // --- visitas & anotações (Master)
+    // --- visitas (checklist, fotos, evolução, anotações) e ações (Master)
     if (App.contexto.master) {
       h += '<div class="aba-corpo" data-corpo="visitas">' + visitasHtml(d) + '</div>';
-      h += '<div class="aba-corpo" data-corpo="pontos">' + pontosHtml(d) + '</div>';
+      h += '<div class="aba-corpo" data-corpo="acoes">' + acoesHtml(d) + '</div>';
     }
 
     h += '</div></div>';
@@ -802,13 +878,7 @@
 
     $('#botao-porta').addEventListener('click', function () { abrirDash(d); });
     $$('#ag-abas button').forEach(function (b) {
-      b.addEventListener('click', function () {
-        $$('#ag-abas button').forEach(function (x) { x.classList.remove('ativa'); });
-        b.classList.add('ativa');
-        $$('.aba-corpo', $('#ag-corpo')).forEach(function (c) {
-          c.classList.toggle('ativa', c.getAttribute('data-corpo') === b.getAttribute('data-aba'));
-        });
-      });
+      b.addEventListener('click', function () { ativarAba(b.getAttribute('data-aba')); });
     });
     if (App.contexto.master) ligarGestao(d);
   }
@@ -827,21 +897,83 @@
     return h + '</div>';
   }
 
+  // ------------------------------------------------ visitas (checklist)
+  // Tudo desta seção é exclusivo do Master: a API só devolve visitas,
+  // anotações, fotos de visita e ações para master(), e o front só renderiza
+  // quando App.contexto.master.
+
+  var CRITERIOS = [['ambiencia', 'Ambiência'], ['atendimento', 'Atendimento'],
+    ['organizacao', 'Organização'], ['equipe', 'Equipe']];
+  var MELHORIAS = ['Fachada e letreiro', 'Sala Estilo', 'Climatização', 'Fila no prioritário',
+    'Sinalização interna', 'Autoatendimento', 'Carteiras desbalanceadas',
+    'Treinamento do portfólio', 'Sala de reunião', 'Iluminação', 'Limpeza', 'Estacionamento'];
+  var MOVIMENTO = { VAZIA: 'vazia', NORMAL: 'movimento normal', CHEIA: 'cheia' };
+  var STATUS_ACAO = { ABERTO: 'aberta', EM_TRATATIVA: 'em tratativa', RESOLVIDO: 'concluída' };
+
+  function realizadas(d) {
+    return (d.visitas || []).filter(function (v) { return v.status === 'REALIZADA'; })
+      .sort(function (a, b) { return (b.dataRealizada || 0) - (a.dataRealizada || 0); });
+  }
+
+  /** "Antes de ir": o que observar nesta agência, montado dos dados já carregados. */
+  function briefingHtml(d) {
+    if (!App.contexto.master) return '';
+    var itens = [];
+    var ult = realizadas(d)[0];
+    var planejada = (d.visitas || []).filter(function (v) { return v.status === 'PLANEJADA'; })
+      .sort(function (a, b) { return (a.dataPlanejada || 9e15) - (b.dataPlanejada || 9e15); })[0];
+    var abertas = (d.pontos || []).filter(function (p) { return p.status !== 'RESOLVIDO'; });
+    var vencidas = abertas.filter(function (p) { return p.vencida; });
+    if (planejada) itens.push('Visita <b>planejada para ' + fmtData(planejada.dataPlanejada) + '</b>' +
+      (planejada.dataPlanejada && planejada.dataPlanejada < Date.now() - 864e5 ? ' <span class="badge vinho">atrasada</span>' : ''));
+    if (ult) {
+      itens.push('Última visita em <b>' + fmtData(ult.dataRealizada) + '</b>' +
+        (ult.notaGeral != null ? ' · nota <b>' + ult.notaGeral.toLocaleString('pt-BR') + '</b>' : '') +
+        (ult.claros ? ' · <b>' + ult.claros + ' claro(s)</b> no quadro' : ''));
+      if ((ult.melhorias || []).length) itens.push('Conferir o que estava pendente: <b>' + ult.melhorias.map(esc).join('</b>, <b>') + '</b>');
+      if (ult.percepcao) itens.push('Você escreveu: <i>“' + esc(ult.percepcao.length > 160 ? ult.percepcao.slice(0, 160) + '…' : ult.percepcao) + '”</i>');
+    } else {
+      itens.push('<b>Primeira visita</b> — registre a impressão inicial e as fotos da fachada e da sala Estilo.');
+    }
+    if (vencidas.length) itens.push('<b>' + vencidas.length + ' ação(ões) com prazo vencido</b> — cobrar retorno: ' +
+      vencidas.slice(0, 3).map(function (p) { return esc(p.descricao); }).join('; ') + (vencidas.length > 3 ? '…' : ''));
+    else if (abertas.length) itens.push('<b>' + abertas.length + ' ação(ões) em aberto</b> para acompanhar na conversa.');
+    if (d.conexao) {
+      if (d.conexao.delta != null && d.conexao.delta < 0) itens.push('Conexão <b>caiu ' + Math.abs(d.conexao.delta) + ' pontos</b> no mês (' + fmtInt(d.conexao.pontos) + ') — perguntar o que mudou.');
+      else if (d.conexao.faixa === 'critico' || d.conexao.faixa === 'atencao') itens.push('Conexão em <b>' + fmtInt(d.conexao.pontos) + '</b> (' + FAIXA_NOME[d.conexao.faixa].toLowerCase() + ').');
+      var piores = (d.conexao.carteiras || []).filter(function (c) { return c.faixa === 'critico'; });
+      if (piores.length) itens.push('Carteira(s) crítica(s): <b>' + piores.map(function (c) { return esc(c.gerenteNome || c.carteira); }).join('</b>, <b>') + '</b>');
+    }
+    var metas = d.metas || [];
+    if (metas.length) {
+      var periodo = metas[0].periodo;
+      var abaixo = metas.filter(function (m) { return m.periodo === periodo && m.meta && (m.realizado || 0) / m.meta < .7; });
+      if (abaixo.length) itens.push('Abaixo de 70% da meta: <b>' + abaixo.map(function (m) { return esc(m.indicador); }).join('</b>, <b>') + '</b>');
+    }
+    if (itens.length <= 1 && !vencidas.length && !abertas.length) itens.push('<span class="ok">✓ Nada pendente — visita de relacionamento.</span>');
+    return '<div class="cartao briefing"><div class="cartao-corpo">' +
+      '<h3><span class="pulso"></span>Antes de ir · briefing automático</h3>' +
+      '<ul>' + itens.map(function (i) { return '<li>' + i + '</li>'; }).join('') + '</ul>' +
+      '</div></div>';
+  }
+
   function visitasHtml(d) {
-    var h = '<div class="linha-campos" style="margin-top:14px">' +
-      '<div class="campo"><label>Status</label><select id="v-status">' +
-      '<option value="PLANEJADA">Planejada</option>' +
-      '<option value="REALIZADA">Realizada</option></select></div>' +
-      '<div class="campo"><label>Data</label><input type="date" id="v-data"></div>' +
-      '<div class="campo" style="flex:2"><label>Resumo</label>' +
-      '<input type="text" id="v-resumo" placeholder="como foi / o que combinar"></div>' +
-      '<div class="campo"><label>&nbsp;</label>' +
-      '<button class="botao primario" id="v-salvar" type="button">Registrar</button></div></div>';
-    h += '<div id="v-lista">';
-    (d.visitas || []).forEach(function (v) { h += visitaItemHtml(v); });
-    if (!(d.visitas || []).length) h += '<div class="vazio">Nenhuma visita registrada.</div>';
-    h += '</div>';
-    h += '<p class="rotulo" style="margin:18px 0 6px">Anotações da agência</p>';
+    var reals = realizadas(d);
+    var h = '<div class="painel-titulo" style="margin-top:14px"><h3 style="margin:0">Registrar visita</h3>' +
+      '<span class="rotulo" id="fv-modo">nova visita</span></div>';
+    h += checklistFormHtml(null);
+
+    h += '<div class="painel-titulo" style="margin-top:22px"><h3 style="margin:0">Histórico · ' + reals.length +
+      ' visita(s) realizada(s)</h3><a class="botao mini claro" href="' + CTX + '/api/export/visitas">Exportar CSV</a></div>';
+    if (reals.length > 1) h += evolucaoHtml(reals);
+    (d.visitas || []).forEach(function (v, i) {
+      var anterior = v.status === 'REALIZADA' ? reals[reals.indexOf(v) + 1] : null;
+      var acoesDaVisita = (d.pontos || []).filter(function (p) { return p.visitaId === v.id; });
+      h += visitaCardHtml(v, anterior, acoesDaVisita);
+    });
+    if (!(d.visitas || []).length) h += '<div class="vazio">Nenhuma visita registrada ainda.</div>';
+
+    h += '<p class="rotulo" style="margin:20px 0 6px">Anotações da agência</p>';
     h += '<div style="display:flex;gap:8px"><input type="text" id="a-texto" style="flex:1" ' +
       'class="campo-input" placeholder="anotar algo sobre esta agência…">' +
       '<button class="botao claro" id="a-salvar" type="button">Anotar</button></div>';
@@ -851,60 +983,188 @@
     return h;
   }
 
-  function visitaItemHtml(v) {
-    var badge = v.status === 'REALIZADA' ? '<span class="badge verde">✓ realizada</span>'
-      : v.status === 'PLANEJADA' ? '<span class="badge ouro">planejada</span>'
-      : '<span class="badge neutro">cancelada</span>';
-    var data = v.status === 'REALIZADA' ? fmtData(v.dataRealizada) : fmtData(v.dataPlanejada);
-    return '<div class="nota" data-visita="' + v.id + '">' +
+  /** Formulário do checklist (vazio = nova visita; v = edição). */
+  function checklistFormHtml(v) {
+    v = v || {};
+    var h = '<div class="cartao" id="fv-form" data-id="' + (v.id || '') + '"><div class="cartao-corpo">';
+    h += '<div class="linha-campos">' +
+      '<div class="campo"><label>Situação</label><select id="fv-status">' +
+      '<option value="REALIZADA"' + (v.status !== 'PLANEJADA' ? ' selected' : '') + '>Realizada (preencher checklist)</option>' +
+      '<option value="PLANEJADA"' + (v.status === 'PLANEJADA' ? ' selected' : '') + '>Só agendar</option></select></div>' +
+      '<div class="campo"><label>Data</label><input type="date" id="fv-data" value="' +
+      isoLocal(v.dataRealizada || v.dataPlanejada || Date.now()) + '"></div>' +
+      '<div class="campo" style="flex:2"><label>Resumo da visita</label><input type="text" id="fv-resumo" value="' + esc(v.resumo || '') +
+      '" placeholder="como encontrei a agência e o que combinei"></div></div>';
+
+    h += '<div id="fv-checklist"' + (v.status === 'PLANEJADA' ? ' hidden' : '') + '>';
+    h += '<div class="checklist">';
+    CRITERIOS.forEach(function (c) {
+      var val = v[c[0]] || 0;
+      h += '<div class="criterio"><div class="cab"><span class="nome">' + c[1] + '</span>' +
+        '<span class="lido" id="fv-' + c[0] + '-lido">' + (val ? val + ' de 5' : 'toque para avaliar') + '</span></div>' +
+        '<div class="pontos-toque" data-criterio="' + c[0] + '">';
+      for (var i = 1; i <= 5; i++) {
+        h += '<button type="button" data-v="' + i + '" class="' + (val === i ? 'sel' : val > i ? 'marcado' : '') + '">' + i + '</button>';
+      }
+      h += '</div></div>';
+    });
+    h += '</div>';
+    h += '<div class="linha-campos">' +
+      '<div class="campo"><label>Movimento</label><div class="segmentado" id="fv-movimento">' +
+      ['VAZIA', 'NORMAL', 'CHEIA'].map(function (m) {
+        return '<button type="button" data-v="' + m + '" class="' + ((v.movimento || 'NORMAL') === m ? 'ativo' : '') + '">' +
+          m.charAt(0) + m.slice(1).toLowerCase() + '</button>';
+      }).join('') + '</div></div>' +
+      '<div class="campo"><label>Claros no quadro</label><div class="stepper">' +
+      '<button type="button" id="fv-claros-menos">−</button><span class="valor" id="fv-claros">' + (v.claros || 0) + '</span>' +
+      '<button type="button" id="fv-claros-mais">+</button></div></div>' +
+      '<div class="campo" style="flex:2"><label>Nota geral · 0 a 10</label><div class="nota-geral">' +
+      '<span class="numzona" id="fv-nota-num">' + (v.notaGeral != null ? v.notaGeral.toLocaleString('pt-BR') : '7') + '</span>' +
+      '<input type="range" id="fv-nota" min="0" max="10" step="0.5" value="' + (v.notaGeral != null ? v.notaGeral : 7) + '"></div></div></div>';
+    // chips padrão + as melhorias livres já gravadas nesta visita (para poder desmarcar)
+    var chipsMelhorias = MELHORIAS.concat((v.melhorias || []).filter(function (m) { return MELHORIAS.indexOf(m) < 0; }));
+    h += '<div class="campo"><label>O que precisa melhorar · toque para marcar</label><div class="chips" id="fv-melhorias" style="margin:0">' +
+      chipsMelhorias.map(function (m) {
+        return '<button type="button" class="chip' + ((v.melhorias || []).indexOf(m) >= 0 ? ' ativo' : '') + '" data-m="' + esc(m) + '">' + esc(m) + '</button>';
+      }).join('') + '<input type="text" id="fv-melhoria-outra" class="campo-input" placeholder="outro ponto… (Enter)" style="min-height:30px;padding:4px 10px;font-size:12.5px"></div></div>';
+    h += '<div class="campo"><label>Minha percepção</label><textarea id="fv-percepcao" placeholder="o que vi, o que combinei, o que observar na próxima visita…">' + esc(v.percepcao || '') + '</textarea></div>';
+    h += '<div class="campo"><label>Ações para dar retorno · caem na aba Ações com prazo e responsável</label>' +
+      '<div class="linha-campos" style="gap:8px"><input type="text" id="fv-acao" class="campo-input" style="flex:2;min-width:180px" placeholder="ex.: cobrar engenharia sobre a fachada">' +
+      '<input type="text" id="fv-acao-resp" class="campo-input" style="flex:1;min-width:120px" placeholder="responsável">' +
+      '<input type="date" id="fv-acao-prazo" class="campo-input" title="prazo">' +
+      '<select id="fv-acao-prio" class="campo-input"><option value="MEDIA">Média</option><option value="ALTA">Alta</option><option value="BAIXA">Baixa</option></select>' +
+      '<button class="botao claro" id="fv-acao-add" type="button">+ incluir</button></div>' +
+      '<div id="fv-acoes" style="display:flex;flex-direction:column;gap:6px;margin-top:6px"></div></div>';
+    h += '<div class="campo"><label>Fotos da visita · só Masters veem</label><div class="fotos-grade" id="fv-fotos">' +
+      '<button class="foto-add" id="fv-foto-add" type="button" title="Adicionar fotos">+</button></div></div>';
+    h += '</div>'; // fv-checklist
+    h += '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">' +
+      '<button class="botao primario" id="fv-salvar" type="button">' + (v.id ? 'Atualizar visita' : 'Salvar visita') + '</button>' +
+      (v.id ? '<button class="botao claro" id="fv-cancelar" type="button">Cancelar edição</button>' : '') + '</div>';
+    h += '</div></div>';
+    return h;
+  }
+
+  function evolucaoHtml(reals) {
+    var crono = reals.slice().reverse().filter(function (v) { return v.notaGeral != null; });
+    if (crono.length < 2) return '';
+    var h = '<div class="cartao" style="margin-top:8px"><div class="cartao-corpo">' +
+      '<div class="painel-titulo"><h3 style="margin:0">Evolução entre visitas</h3>' +
+      '<span class="rotulo">nota geral · as ações estão funcionando?</span></div><div class="evolucao">';
+    crono.forEach(function (v, i) {
+      h += '<div class="barra' + (i === crono.length - 1 ? ' ultima' : '') + '" title="' + fmtData(v.dataRealizada) + ' · nota ' + v.notaGeral + '">' +
+        '<i style="height:' + Math.max(6, v.notaGeral * 4.6) + 'px"></i><small>' + v.notaGeral.toLocaleString('pt-BR') + '</small></div>';
+    });
+    var delta = crono[crono.length - 1].notaGeral - crono[0].notaGeral;
+    h += '</div><span class="badge ' + (delta >= 0 ? 'verde' : 'vinho') + '">' + (delta >= 0 ? '▲' : '▼') + ' ' +
+      Math.abs(delta).toLocaleString('pt-BR', { maximumFractionDigits: 1 }) + ' desde a primeira visita</span></div></div>';
+    return h;
+  }
+
+  function deltaHtml(atual, anterior) {
+    if (atual == null || anterior == null || atual === anterior) return '';
+    var d = atual - anterior;
+    return '<span class="delta ' + (d > 0 ? 'sobe' : 'desce') + '">' + (d > 0 ? '▲' : '▼') + Math.abs(d).toLocaleString('pt-BR', { maximumFractionDigits: 1 }) + '</span>';
+  }
+
+  function visitaCardHtml(v, anterior, acoesDaVisita) {
+    var realizada = v.status === 'REALIZADA';
+    var badge = realizada ? '<span class="badge verde">realizada</span>'
+      : v.status === 'PLANEJADA' ? '<span class="badge info">planejada</span>' : '<span class="badge neutro">cancelada</span>';
+    var h = '<div class="visita-card" data-visita="' + v.id + '">';
+    h += '<div class="cab">' + badge + '<span class="quando">' + fmtData(realizada ? v.dataRealizada : v.dataPlanejada) + '</span>' +
+      (v.notaGeral != null ? '<span class="badge ' + (v.notaGeral >= 7.5 ? 'verde' : v.notaGeral >= 6 ? 'ambar' : 'vinho') + '">nota ' + v.notaGeral.toLocaleString('pt-BR') + '</span>' : '') +
+      (v.movimento ? '<span class="badge neutro">' + MOVIMENTO[v.movimento] + '</span>' : '') +
+      (v.claros ? '<span class="badge ambar">' + v.claros + ' claro(s)</span>' : '') +
       '<span class="acoes-nota">' +
-      (v.status === 'PLANEJADA'
-        ? '<button class="botao mini primario" data-acao="realizar">feita hoje</button>' : '') +
-      '<button class="botao mini perigo" data-acao="excluir-visita">excluir</button></span>' +
-      badge + ' <strong>' + data + '</strong>' +
-      (v.resumo ? '<br>' + esc(v.resumo) : '') + '</div>';
-  }
-
-  function notaHtml(a) {
-    var acoes = App.contexto.master
-      ? '<span class="acoes-nota">' +
-        '<button class="botao mini claro" data-acao="fixar">' + (a.fixada ? 'solta' : 'fixa') + '</button>' +
-        '<button class="botao mini perigo" data-acao="excluir-anotacao">excluir</button></span>'
-      : '';
-    return '<div class="nota' + (a.fixada ? ' fixada' : '') + '" data-anotacao="' + a.id + '">' +
-      acoes + esc(a.texto) + '<br><small>' + fmtData(a.criadoEm) + '</small></div>';
-  }
-
-  function pontosHtml(d) {
-    var h = '<div class="linha-campos" style="margin-top:14px">' +
-      '<div class="campo" style="flex:2"><label>Novo ponto de melhoria</label>' +
-      '<input type="text" id="p-desc" placeholder="o que precisa melhorar"></div>' +
-      '<div class="campo"><label>Previsão</label><input type="date" id="p-prev"></div>' +
-      '<div class="campo"><label>&nbsp;</label>' +
-      '<button class="botao primario" id="p-salvar" type="button">Abrir ponto</button></div></div>';
-    h += '<div id="p-lista">';
-    (d.pontos || []).forEach(function (p) { h += pontoItemHtml(p); });
-    if (!(d.pontos || []).length) h += '<div class="vazio">Nenhum ponto registrado.</div>';
+      (v.status === 'PLANEJADA' ? '<button class="botao mini primario" data-acao="realizar">registrar agora</button>' : '') +
+      '<button class="botao mini claro" data-acao="editar-visita">editar</button>' +
+      '<button class="botao mini perigo" data-acao="excluir-visita">excluir</button></span></div>';
+    if (v.resumo) h += '<p class="percepcao" style="margin:8px 0 0"><b>' + esc(v.resumo) + '</b></p>';
+    if (realizada && (v.ambiencia || v.atendimento || v.organizacao || v.equipe)) {
+      h += '<div class="notas">' + CRITERIOS.map(function (c) {
+        return '<div class="n"><small>' + c[1] + '</small><b>' + (v[c[0]] != null ? v[c[0]] + '<span style="font-size:11px;color:var(--texto-3)">/5</span>' : '—') +
+          (anterior ? deltaHtml(v[c[0]], anterior[c[0]]) : '') + '</b></div>';
+      }).join('') + '</div>';
+    }
+    if ((v.melhorias || []).length) h += '<div class="chips" style="margin:6px 0">' + v.melhorias.map(function (m) { return '<span class="badge vinho">' + esc(m) + '</span>'; }).join('') + '</div>';
+    if (v.percepcao) h += '<p class="percepcao">“' + esc(v.percepcao) + '”</p>';
+    if (acoesDaVisita.length) {
+      h += '<div class="rotulo" style="margin-top:8px">Ações desta visita</div>';
+      acoesDaVisita.forEach(function (p) { h += acaoCardHtml(p, { compacta: true }); });
+    }
+    if (realizada) {
+      h += '<div class="rotulo" style="margin-top:10px">Fotos · restritas aos Masters</div><div class="fotos-grade">' +
+        (v.fotos || []).map(function (f) {
+          return '<span class="foto-mini"><img loading="lazy" src="' + CTX + '/foto/' + esc(f.id) + '" alt="" onclick="window.open(this.src)"></span>';
+        }).join('') + '<button class="foto-add" data-acao="foto-visita" type="button" title="Adicionar fotos">+</button></div>';
+    }
     return h + '</div>';
   }
 
-  function pontoItemHtml(p) {
-    var badge = p.status === 'RESOLVIDO' ? '<span class="badge verde">✓ resolvido</span>'
-      : p.status === 'EM_TRATATIVA' ? '<span class="badge ouro">em tratativa</span>'
-      : '<span class="badge vinho">aberto</span>';
-    var atrasado = p.status !== 'RESOLVIDO' && p.previsao && p.previsao < Date.now();
-    return '<div class="nota" data-ponto="' + p.id + '">' +
-      '<span class="acoes-nota">' +
-      (p.status === 'ABERTO'
-        ? '<button class="botao mini claro" data-acao="tratar">tratar</button>' : '') +
-      (p.status !== 'RESOLVIDO'
-        ? '<button class="botao mini primario" data-acao="resolver">resolver</button>' : '') +
-      '<button class="botao mini perigo" data-acao="excluir-ponto">excluir</button></span>' +
-      badge + (p.previsao ? ' <span class="badge ' + (atrasado ? 'vinho' : 'neutro') + '">prev. ' +
-        fmtData(p.previsao) + (atrasado ? ' ⚠' : '') + '</span>' : '') +
-      '<br><strong>' + esc(p.descricao) + '</strong>' +
-      (p.solucao ? '<br><small>Solução: ' + esc(p.solucao) + '</small>' : '') + '</div>';
+  // ---------------------------------------------------------------- ações
+
+  function acoesHtml(d) {
+    var pend = (d.pontos || []).filter(function (p) { return p.status !== 'RESOLVIDO'; });
+    var feitas = (d.pontos || []).filter(function (p) { return p.status === 'RESOLVIDO'; });
+    var h = '<div class="cartao" style="margin-top:14px"><div class="cartao-corpo"><h3>Nova ação</h3>' +
+      '<div class="linha-campos" style="gap:8px">' +
+      '<input type="text" id="p-desc" class="campo-input" style="flex:2;min-width:200px" placeholder="o que precisa ser feito">' +
+      '<input type="text" id="p-resp" class="campo-input" style="flex:1;min-width:130px" placeholder="responsável">' +
+      '<input type="date" id="p-prev" class="campo-input" title="prazo">' +
+      '<select id="p-prio" class="campo-input"><option value="MEDIA">Média</option><option value="ALTA">Alta</option><option value="BAIXA">Baixa</option></select>' +
+      '<button class="botao primario" id="p-salvar" type="button">Criar</button></div></div></div>';
+    h += '<div class="painel-titulo" style="margin-top:16px"><h3 style="margin:0">Pendentes <span class="badge ' + (pend.length ? 'ambar' : 'verde') + '">' + pend.length + '</span></h3>' +
+      '<a class="botao mini claro" href="' + CTX + '/api/export/acoes">Exportar CSV</a></div>';
+    if (!pend.length) h += '<div class="vazio">Nada pendente nesta agência. ✓</div>';
+    pend.forEach(function (p) { h += acaoCardHtml(p, {}); });
+    if (feitas.length) {
+      h += '<div class="painel-titulo" style="margin-top:16px"><h3 style="margin:0">Concluídas <span class="badge verde">' + feitas.length + '</span></h3></div>';
+      feitas.forEach(function (p) { h += acaoCardHtml(p, { compacta: true }); });
+    }
+    return h;
   }
+
+  function prazoBadge(p) {
+    if (p.status === 'RESOLVIDO') return p.resolvidoEm ? '<span class="badge verde">concluída em ' + fmtData(p.resolvidoEm) + '</span>' : '';
+    if (!p.previsao) return '<span class="badge neutro">sem prazo</span>';
+    if (p.vencida) return '<span class="badge vinho">venceu em ' + fmtData(p.previsao) + '</span>';
+    if (p.diasParaPrazo != null && p.diasParaPrazo <= 7) return '<span class="badge ambar">vence em ' + Math.max(0, Math.round(p.diasParaPrazo)) + ' dia(s)</span>';
+    return '<span class="badge neutro">até ' + fmtData(p.previsao) + '</span>';
+  }
+
+  /** Card de ação (na agência, na vista Ações e no planejamento). */
+  function acaoCardHtml(p, opts) {
+    opts = opts || {};
+    var aberta = p.status !== 'RESOLVIDO';
+    var h = '<div class="acao-card' + (p.vencida ? ' vencida' : '') + (aberta ? '' : ' resolvida') +
+      (opts.compacta ? ' compacta' : '') + '" data-ponto="' + p.id + '">';
+    h += '<span class="prio ' + esc(p.prioridade || 'MEDIA') + '" title="prioridade ' + esc((p.prioridade || 'MEDIA').toLowerCase()) + '"></span>';
+    h += '<div><div class="desc">' + esc(p.descricao) + '</div><div class="meta">' +
+      (opts.comAgencia ? '<button class="botao mini claro" data-prefixo="' + esc(p.prefixo) + '">' + esc(p.agencia || p.prefixo) + '</button>' : '') +
+      '<span class="badge ' + (p.status === 'RESOLVIDO' ? 'verde' : p.status === 'EM_TRATATIVA' ? 'info' : 'ambar') + '">' + STATUS_ACAO[p.status] + '</span>' +
+      prazoBadge(p) +
+      (p.responsavel ? '<span>👤 ' + esc(p.responsavel) + '</span>' : '') +
+      (p.visitaId ? '<span>· origem: visita</span>' : '') +
+      (p.atualizacoes ? '<span>· ' + p.atualizacoes + ' retorno(s)</span>' : '') +
+      (p.solucao ? '<span>· solução: ' + esc(p.solucao) + '</span>' : '') + '</div></div>';
+    h += '<span class="acoes-nota">' +
+      (aberta && p.status === 'ABERTO' ? '<button class="botao mini claro" data-acao="tratar">em tratativa</button>' : '') +
+      (aberta ? '<button class="botao mini primario" data-acao="resolver">concluir</button>' : '<button class="botao mini claro" data-acao="reabrir">reabrir</button>') +
+      (p.atualizacoes ? '<button class="botao mini claro" data-acao="historico">histórico</button>' : '') +
+      '<button class="botao mini perigo" data-acao="excluir-ponto">excluir</button></span>';
+    if (aberta && !opts.compacta) {
+      h += '<div class="retorno"><input type="text" placeholder="registrar retorno / cobrança…" data-campo="retorno">' +
+        '<select data-campo="status-novo"><option value="">manter status</option><option value="EM_TRATATIVA">→ em tratativa</option><option value="RESOLVIDO">→ concluída</option></select>' +
+        '<button class="botao mini claro" data-acao="retorno-enviar" type="button">enviar</button></div>';
+    }
+    h += '<div class="timeline" data-timeline hidden></div>';
+    return h + '</div>';
+  }
+
+  // ------------------------------------------------------ estado do form
+
+  var formVisita = { criterios: {}, melhorias: [], fotos: [], acoes: [], editando: null };
 
   function ligarGestao(d) {
     var prefixo = d.agencia.prefixo;
@@ -914,19 +1174,6 @@
     if (salvarGmaps) salvarGmaps.addEventListener('click', function () {
       post('agencia/' + prefixo + '/gmaps', { url: $('#ag-gmaps').value.trim() })
         .then(function () { toast('Link do Maps salvo.'); abrirAgencia(prefixo); })
-        .catch(function (e) { toast(e.message); });
-    });
-
-    var vSalvar = $('#v-salvar', raiz);
-    if (vSalvar) vSalvar.addEventListener('click', function () {
-      var status = $('#v-status').value;
-      var data = dataParaEpoch($('#v-data').value);
-      post('visita', {
-        prefixo: prefixo, status: status,
-        dataPlanejada: status === 'PLANEJADA' ? data : null,
-        dataRealizada: status === 'REALIZADA' ? (data || Date.now()) : null,
-        resumo: $('#v-resumo').value
-      }).then(function () { toast('Visita registrada.'); recarregar(prefixo); })
         .catch(function (e) { toast(e.message); });
     });
 
@@ -942,11 +1189,157 @@
     var pSalvar = $('#p-salvar', raiz);
     if (pSalvar) pSalvar.addEventListener('click', function () {
       var desc = $('#p-desc').value.trim();
-      if (!desc) return;
-      post('ponto', { prefixo: prefixo, descricao: desc,
-        previsao: dataParaEpoch($('#p-prev').value) })
-        .then(function () { toast('Ponto aberto.'); recarregar(prefixo); })
+      if (!desc) { toast('Descreva a ação.'); return; }
+      post('ponto', { prefixo: prefixo, descricao: desc, previsao: dataParaEpoch($('#p-prev').value),
+        responsavel: $('#p-resp').value.trim(), prioridade: $('#p-prio').value })
+        .then(function () { toast('Ação criada.'); recarregar(prefixo); atualizarContadorAcoes(); })
         .catch(function (e) { toast(e.message); });
+    });
+
+    ligarFormVisita(d, null);
+  }
+
+  function ligarFormVisita(d, v) {
+    var prefixo = d.agencia.prefixo;
+    var form = $('#fv-form');
+    if (!form) return;
+    formVisita = { criterios: {}, melhorias: (v && v.melhorias ? v.melhorias.slice() : []), fotos: [], acoes: [], editando: v ? v.id : null };
+    CRITERIOS.forEach(function (c) { formVisita.criterios[c[0]] = v && v[c[0]] ? v[c[0]] : 0; });
+    $('#fv-modo').textContent = v ? 'editando a visita de ' + fmtData(v.dataRealizada || v.dataPlanejada) : 'nova visita';
+
+    $('#fv-status', form).addEventListener('change', function () {
+      $('#fv-checklist', form).hidden = this.value === 'PLANEJADA';
+    });
+    $$('.pontos-toque', form).forEach(function (grupo) {
+      var crit = grupo.getAttribute('data-criterio');
+      $$('button', grupo).forEach(function (b) {
+        b.addEventListener('click', function () {
+          var val = +b.getAttribute('data-v');
+          formVisita.criterios[crit] = val;
+          $$('button', grupo).forEach(function (x) {
+            var xv = +x.getAttribute('data-v');
+            x.className = xv === val ? 'sel' : xv < val ? 'marcado' : '';
+          });
+          $('#fv-' + crit + '-lido', form).textContent = val + ' de 5';
+        });
+      });
+    });
+    $$('#fv-movimento button', form).forEach(function (b) {
+      b.addEventListener('click', function () {
+        $$('#fv-movimento button', form).forEach(function (x) { x.classList.remove('ativo'); });
+        b.classList.add('ativo');
+      });
+    });
+    function claros() { return +$('#fv-claros', form).textContent; }
+    $('#fv-claros-menos', form).addEventListener('click', function () { $('#fv-claros', form).textContent = Math.max(0, claros() - 1); });
+    $('#fv-claros-mais', form).addEventListener('click', function () { $('#fv-claros', form).textContent = Math.min(99, claros() + 1); });
+    $('#fv-nota', form).addEventListener('input', function () { $('#fv-nota-num', form).textContent = (+this.value).toLocaleString('pt-BR'); });
+    $$('#fv-melhorias .chip', form).forEach(function (b) {
+      b.addEventListener('click', function () {
+        var m = b.getAttribute('data-m'), i = formVisita.melhorias.indexOf(m);
+        if (i >= 0) formVisita.melhorias.splice(i, 1); else formVisita.melhorias.push(m);
+        b.classList.toggle('ativo');
+      });
+    });
+    $('#fv-melhoria-outra', form).addEventListener('keydown', function (ev) {
+      if (ev.key !== 'Enter') return;
+      ev.preventDefault();
+      var m = this.value.trim();
+      if (!m) return;
+      if (formVisita.melhorias.indexOf(m) < 0) formVisita.melhorias.push(m);
+      var chip = document.createElement('button');
+      chip.type = 'button'; chip.className = 'chip ativo'; chip.setAttribute('data-m', m); chip.textContent = m;
+      chip.addEventListener('click', function () {
+        var i = formVisita.melhorias.indexOf(m);
+        if (i >= 0) formVisita.melhorias.splice(i, 1); else formVisita.melhorias.push(m);
+        chip.classList.toggle('ativo');
+      });
+      this.parentNode.insertBefore(chip, this);
+      this.value = '';
+    });
+    function renderAcoesForm() {
+      $('#fv-acoes', form).innerHTML = formVisita.acoes.map(function (a, i) {
+        return '<div class="nota" style="padding:6px 10px;font-size:12.5px"><span class="acoes-nota">' +
+          '<button class="botao mini perigo" type="button" data-fv-acao-tirar="' + i + '">×</button></span>⚑ ' + esc(a.texto) +
+          (a.responsavel ? ' · ' + esc(a.responsavel) : '') + (a.prazo ? ' · até ' + fmtData(a.prazo) : '') +
+          ' <span class="badge ' + (a.prioridade === 'ALTA' ? 'vinho' : a.prioridade === 'BAIXA' ? 'info' : 'ambar') + '">' + a.prioridade.toLowerCase() + '</span></div>';
+      }).join('');
+      $$('[data-fv-acao-tirar]', form).forEach(function (b) {
+        b.addEventListener('click', function () { formVisita.acoes.splice(+b.getAttribute('data-fv-acao-tirar'), 1); renderAcoesForm(); });
+      });
+    }
+    $('#fv-acao-add', form).addEventListener('click', function () {
+      var tx = $('#fv-acao', form).value.trim();
+      if (!tx) { toast('Descreva a ação.'); return; }
+      formVisita.acoes.push({ texto: tx, responsavel: $('#fv-acao-resp', form).value.trim(),
+        prazo: dataParaEpoch($('#fv-acao-prazo', form).value), prioridade: $('#fv-acao-prio', form).value });
+      $('#fv-acao', form).value = ''; $('#fv-acao-resp', form).value = ''; $('#fv-acao-prazo', form).value = '';
+      renderAcoesForm();
+    });
+    function renderFotosForm() {
+      var grade = $('#fv-fotos', form);
+      $$('.foto-mini', grade).forEach(function (x) { x.remove(); });
+      formVisita.fotos.forEach(function (f, i) {
+        var mini = document.createElement('span');
+        mini.className = 'foto-mini';
+        mini.innerHTML = '<img alt=""><button class="botao mini perigo" type="button" style="position:absolute;top:4px;right:4px;padding:2px 6px" data-fv-foto-tirar="' + i + '">×</button>';
+        mini.querySelector('img').src = URL.createObjectURL(f);
+        mini.querySelector('button').addEventListener('click', function () { formVisita.fotos.splice(i, 1); renderFotosForm(); });
+        grade.insertBefore(mini, $('#fv-foto-add', grade));
+      });
+    }
+    $('#fv-foto-add', form).addEventListener('click', function () {
+      var input = $('#foto-visita-input');
+      input.onchange = function () {
+        [].slice.call(this.files).forEach(function (f) { if (formVisita.fotos.length < 12) formVisita.fotos.push(f); });
+        this.value = '';
+        renderFotosForm();
+      };
+      input.click();
+    });
+    var cancelar = $('#fv-cancelar', form);
+    if (cancelar) cancelar.addEventListener('click', function () { recarregar(prefixo); });
+
+    $('#fv-salvar', form).addEventListener('click', function () {
+      var status = $('#fv-status', form).value;
+      var data = dataParaEpoch($('#fv-data', form).value);
+      // resumo vazio vai como '' (e não null) para poder limpar o campo na edição
+      var dados = { prefixo: prefixo, status: status, resumo: $('#fv-resumo', form).value.trim() };
+      if (status === 'PLANEJADA') dados.dataPlanejada = data || Date.now();
+      else {
+        dados.dataRealizada = data || Date.now();
+        var faltando = CRITERIOS.filter(function (c) { return !formVisita.criterios[c[0]]; });
+        if (faltando.length) { toast('Avalie ' + faltando[0][1].toLowerCase() + ' antes de salvar.'); return; }
+        CRITERIOS.forEach(function (c) { dados[c[0]] = formVisita.criterios[c[0]]; });
+        var mov = $('#fv-movimento .ativo', form);
+        dados.movimento = mov ? mov.getAttribute('data-v') : 'NORMAL';
+        dados.claros = claros();
+        dados.notaGeral = $('#fv-nota', form).value;
+        dados.melhorias = formVisita.melhorias.join('|');
+        dados.percepcao = $('#fv-percepcao', form).value.trim();
+      }
+      var btn = this; btn.disabled = true;
+      var pedido = formVisita.editando ? post('visita/' + formVisita.editando, dados) : post('visita', dados);
+      pedido.then(function (r) {
+        var visitaId = formVisita.editando || r.id;
+        // a visita já existe: se uma ação/foto falhar, o novo clique atualiza em vez de duplicar
+        formVisita.editando = visitaId;
+        var depois = [];
+        formVisita.acoes.forEach(function (a) {
+          depois.push(post('ponto', { prefixo: prefixo, descricao: a.texto, previsao: a.prazo,
+            responsavel: a.responsavel, prioridade: a.prioridade, visitaId: visitaId }));
+        });
+        if (formVisita.fotos.length && status !== 'PLANEJADA') {
+          var fd = new FormData();
+          formVisita.fotos.forEach(function (f) { fd.append('arquivo', f); });
+          depois.push(api('visita/' + visitaId + '/foto', { method: 'POST', body: fd }));
+        }
+        return Promise.all(depois).then(function () {
+          toast(status === 'PLANEJADA' ? 'Visita agendada.' : 'Visita registrada ✓' +
+            (formVisita.acoes.length ? ' · ' + formVisita.acoes.length + ' ação(ões) na sua fila' : ''));
+          recarregar(prefixo); atualizarContadorAcoes();
+        });
+      }).catch(function (e) { btn.disabled = false; toast(e.message); });
     });
   }
 
@@ -960,42 +1353,112 @@
     if (!b || !App.agencia) return;
     var prefixo = App.agencia.agencia.prefixo;
     var acao = b.getAttribute('data-acao');
-    var nota = b.closest('.nota');
+    var cartaoVisita = b.closest('[data-visita]'), cartaoAcao = b.closest('[data-ponto]'), nota = b.closest('.nota');
     var falha = function (e) { toast(e.message); };
-    var p;
-    if (acao === 'realizar') {
-      post('visita/' + nota.getAttribute('data-visita'),
-        { status: 'REALIZADA', dataRealizada: Date.now() })
-        .then(function () { toast('Visita concluída. 🎉'); recarregar(prefixo); })
-        .catch(falha);
+    var visitaDe = function () {
+      var id = +cartaoVisita.getAttribute('data-visita');
+      return (App.agencia.visitas || []).filter(function (v) { return v.id === id; })[0];
+    };
+    if (acao === 'realizar' || acao === 'editar-visita') {
+      var v = visitaDe();
+      if (!v) return;
+      if (acao === 'realizar') { v = Object.assign({}, v, { status: 'REALIZADA', dataRealizada: Date.now() }); }
+      var atual = $('#fv-form');
+      var novo = document.createElement('div');
+      novo.innerHTML = checklistFormHtml(v);
+      atual.parentNode.replaceChild(novo.firstChild, atual);
+      ligarFormVisita(App.agencia, v);
+      $('#fv-form').scrollIntoView({ behavior: 'smooth', block: 'start' });
     } else if (acao === 'excluir-visita') {
-      post('visita/' + nota.getAttribute('data-visita') + '/excluir', {})
+      if (!confirm('Excluir esta visita e suas notas?')) return;
+      post('visita/' + cartaoVisita.getAttribute('data-visita') + '/excluir', {})
         .then(function () { recarregar(prefixo); }).catch(falha);
+    } else if (acao === 'foto-visita') {
+      var input = $('#foto-visita-input');
+      input.onchange = function () {
+        if (!this.files.length) return;
+        var fd = new FormData();
+        [].slice.call(this.files).forEach(function (f) { fd.append('arquivo', f); });
+        this.value = '';
+        api('visita/' + cartaoVisita.getAttribute('data-visita') + '/foto', { method: 'POST', body: fd })
+          .then(function (r) { toast(r.gravadas + ' foto(s) guardada(s).'); recarregar(prefixo); }).catch(falha);
+      };
+      input.click();
     } else if (acao === 'fixar') {
-      var fixada = nota.classList.contains('fixada') ? '0' : '1';
-      post('anotacao/' + nota.getAttribute('data-anotacao'), { fixada: fixada })
+      post('anotacao/' + nota.getAttribute('data-anotacao'), { fixada: nota.classList.contains('fixada') ? '0' : '1' })
         .then(function () { recarregar(prefixo); }).catch(falha);
     } else if (acao === 'excluir-anotacao') {
       post('anotacao/' + nota.getAttribute('data-anotacao') + '/excluir', {})
         .then(function () { recarregar(prefixo); }).catch(falha);
-    } else if (acao === 'tratar') {
-      post('ponto/' + nota.getAttribute('data-ponto'), { status: 'EM_TRATATIVA' })
-        .then(function () { recarregar(prefixo); }).catch(falha);
-    } else if (acao === 'resolver') {
-      p = prompt('Qual foi a solução aplicada?');
-      if (p == null) return;
-      post('ponto/' + nota.getAttribute('data-ponto'), { status: 'RESOLVIDO', solucao: p })
-        .then(function () { toast('Ponto resolvido. ✓'); recarregar(prefixo); })
-        .catch(falha);
-    } else if (acao === 'excluir-ponto') {
-      post('ponto/' + nota.getAttribute('data-ponto') + '/excluir', {})
-        .then(function () { recarregar(prefixo); }).catch(falha);
+    } else if (cartaoAcao) {
+      tratarAcaoCard(acao, cartaoAcao, function () { recarregar(prefixo); atualizarContadorAcoes(); });
     }
   }
 
+  /** Botões de um card de ação (compartilhado pela agência e pela vista Ações). */
+  function tratarAcaoCard(acao, cartao, depois) {
+    var id = cartao.getAttribute('data-ponto');
+    var falha = function (e) { toast(e.message); };
+    if (acao === 'tratar') {
+      post('ponto/' + id + '/comentar', { status: 'EM_TRATATIVA', texto: 'Tratativa iniciada' }).then(depois).catch(falha);
+    } else if (acao === 'resolver') {
+      var sol = prompt('O que foi feito / qual foi a solução?');
+      if (sol == null) return;
+      post('ponto/' + id, { status: 'RESOLVIDO', solucao: sol }).then(function () {
+        return post('ponto/' + id + '/comentar', { texto: 'Concluída: ' + sol });
+      }).then(function () { toast('Ação concluída ✓'); depois(); }).catch(falha);
+    } else if (acao === 'reabrir') {
+      post('ponto/' + id + '/comentar', { status: 'ABERTO', texto: 'Reaberta' }).then(depois).catch(falha);
+    } else if (acao === 'excluir-ponto') {
+      if (!confirm('Excluir esta ação e seu histórico?')) return;
+      post('ponto/' + id + '/excluir', {}).then(depois).catch(falha);
+    } else if (acao === 'retorno-enviar') {
+      var txt = $('[data-campo="retorno"]', cartao).value.trim();
+      var st = $('[data-campo="status-novo"]', cartao).value;
+      if (!txt && !st) { toast('Escreva o retorno ou escolha o novo status.'); return; }
+      post('ponto/' + id + '/comentar', { texto: txt || null, status: st || null })
+        .then(function () { toast('Retorno registrado.'); depois(); }).catch(falha);
+    } else if (acao === 'historico') {
+      var tl = $('[data-timeline]', cartao);
+      if (!tl.hidden) { tl.hidden = true; return; }
+      tl.hidden = false;
+      tl.innerHTML = '<div class="ev">carregando…</div>';
+      api('ponto/' + id + '/atualizacoes').then(function (lista) {
+        tl.innerHTML = lista.length ? lista.map(function (u) {
+          return '<div class="ev"><small>' + fmtData(u.criadoEm) + ' · ' + esc(u.criadoPor || '') + '</small>' +
+            (u.statusNovo ? '<span class="badge ' + (u.statusNovo === 'RESOLVIDO' ? 'verde' : 'info') + '" style="margin-right:6px">' + STATUS_ACAO[u.statusNovo] + '</span>' : '') +
+            esc(u.texto || '') + '</div>';
+        }).join('') : '<div class="ev">Sem retornos registrados.</div>';
+      }).catch(falha);
+    }
+  }
+
+  function atualizarContadorAcoes() {
+    var alvo = $('#nav-acoes-n');
+    if (!alvo || !App.contexto || !App.contexto.master) return;
+    api('acoes?status=PENDENTES').then(function (lista) {
+      alvo.textContent = lista.length;
+      alvo.hidden = !lista.length;
+    }).catch(function () { /* silencioso */ });
+  }
+
+  function notaHtml(a) {
+    var acoes = App.contexto.master
+      ? '<span class="acoes-nota">' +
+        '<button class="botao mini claro" data-acao="fixar">' + (a.fixada ? 'solta' : 'fixa') + '</button>' +
+        '<button class="botao mini perigo" data-acao="excluir-anotacao">excluir</button></span>'
+      : '';
+    return '<div class="nota' + (a.fixada ? ' fixada' : '') + '" data-anotacao="' + a.id + '">' +
+      acoes + esc(a.texto) + '<br><small>' + fmtData(a.criadoEm) + '</small></div>';
+  }
+
+  /** Recarrega a agência mantendo aba e rolagem; atualiza pins/painel por trás. */
   function recarregar(prefixo) {
-    api('mapa').then(function (m) { App.mapa = m; });
-    abrirAgencia(prefixo);
+    api('mapa').then(function (m) {
+      App.mapa = m;
+      if (App.sel.uf) desenharPins(App.sel.uf, App.sel.municipio);
+    }).catch(function () { /* o drawer já mostra o erro se a API caiu */ });
+    abrirAgencia(prefixo, estadoDrawer());
   }
 
   // -------------------------------------------------------------- dashboard
@@ -1078,10 +1541,14 @@
           ? '<span class="badge verde">✓ última visita ' + fmtData(ultima.dataRealizada) + '</span>'
           : '<span class="badge vinho">ainda não visitada</span>') + ' ' +
         '<span class="badge ' + (abertos.length ? 'vinho' : 'neutro') + '">' +
-        abertos.length + ' ponto(s) aberto(s)</span></p>';
+        abertos.length + ' ação(ões) em aberto</span>' +
+        (ultima && ultima.notaGeral != null
+          ? ' <span class="badge ouro">nota ' + ultima.notaGeral.toLocaleString('pt-BR') + '</span>' : '') + '</p>';
       abertos.slice(0, 4).forEach(function (p) {
         h += '<div class="nota" style="margin-top:8px">' + esc(p.descricao) +
-          (p.previsao ? '<br><small>previsão ' + fmtData(p.previsao) + '</small>' : '') + '</div>';
+          (p.responsavel ? ' <small>· ' + esc(p.responsavel) + '</small>' : '') +
+          (p.previsao ? '<br><small>prazo ' + fmtData(p.previsao) +
+            (p.vencida ? ' · <span class="badge vinho mini">vencida</span>' : '') + '</small>' : '') + '</div>';
       });
       h += '</div></div>';
     }
@@ -1100,78 +1567,105 @@
     var alvo = $('#grade-planejamento');
     alvo.innerHTML = '<div class="carregando">Carregando…</div>';
     api('planejamento').then(function (p) {
-      $('#plan-resumo').textContent = p.naoVisitadas.length + ' a visitar · ' +
-        p.planejadas.length + ' planejada(s) · ' + p.pontosEstourados.length +
-        ' prazo(s) estourado(s)';
+      var k = p.kpis || {};
+      $('#plan-resumo').textContent = k.visitadas + ' de ' + k.total + ' visitadas · ' +
+        p.planejadas.length + ' planejada(s) · ' + k.acoesVencidas + ' ação(ões) vencida(s)';
       var h = '';
 
-      h += '<div class="cartao"><div class="cartao-corpo">' +
-        '<h3>Fila de visitas <span class="badge ouro">' + p.naoVisitadas.length + '</span></h3>' +
-        '<div class="fila">';
+      h += '<div class="cartao largo"><div class="cartao-corpo"><div class="kpis">' +
+        kpi(k.visitadas + '/' + k.total, 'agências visitadas', 'destaque') +
+        kpi(k.visitas90, 'visitas · 90 dias') +
+        kpi(k.notaMedia != null ? k.notaMedia.toLocaleString('pt-BR', { maximumFractionDigits: 1 }) : '—', 'nota média das visitas') +
+        kpi(k.agendaSemana, 'planejadas esta semana') +
+        kpi(k.acoesAbertas, 'ações em aberto') +
+        kpi(k.acoesVencidas, 'ações vencidas', k.acoesVencidas ? 'critico' : 'ok') +
+        '</div></div></div>';
+
+      // esta semana + atrasadas
+      var semana = p.planejadas.filter(function (v) { return v.estaSemana || v.atrasada; });
+      h += '<div class="cartao"><div class="cartao-corpo"><h3>Esta semana <span class="badge info">' + semana.length + '</span></h3><div class="fila">';
+      if (!semana.length) h += '<div class="vazio">Nada planejado para os próximos 7 dias.</div>';
+      semana.forEach(function (v) {
+        h += '<button class="item-agencia" type="button" data-prefixo="' + esc(v.prefixo) + '">' +
+          '<span class="selo-visita"></span><span><span class="nome">' + esc(v.nome) + '</span><small>' +
+          esc(v.municipio || '') + '/' + esc(v.uf || '') + (v.pontosAbertos ? ' · ⚑ ' + v.pontosAbertos + ' ação(ões) aberta(s)' : '') + '</small></span>' +
+          '<span class="numeros">' + (v.atrasada ? '<span class="badge vinho">atrasada</span><br>' : '') + fmtData(v.dataPlanejada) + '</span></button>';
+      });
+      h += '</div></div></div>';
+
+      h += '<div class="cartao"><div class="cartao-corpo"><h3>Ações vencidas <span class="badge ' +
+        (p.pontosEstourados.length ? 'vinho' : 'verde') + '">' + p.pontosEstourados.length + '</span></h3><div class="fila">';
+      if (!p.pontosEstourados.length) h += '<div class="vazio">Nenhum prazo vencido. ✓</div>';
+      p.pontosEstourados.forEach(function (a) { h += acaoCardHtml(a, { compacta: true, comAgencia: true }); });
+      h += '</div></div></div>';
+
+      h += '<div class="cartao"><div class="cartao-corpo"><h3>Vencem em 7 dias <span class="badge ' +
+        (p.acoesVencendo.length ? 'ambar' : 'neutro') + '">' + p.acoesVencendo.length + '</span></h3><div class="fila">';
+      if (!p.acoesVencendo.length) h += '<div class="vazio">Nada vence nos próximos 7 dias.</div>';
+      p.acoesVencendo.forEach(function (a) { h += acaoCardHtml(a, { compacta: true, comAgencia: true }); });
+      h += '</div></div></div>';
+
+      h += '<div class="cartao"><div class="cartao-corpo"><h3>Fila de visitas <span class="badge ouro">' + p.naoVisitadas.length + '</span></h3>' +
+        '<p class="rotulo" style="margin:-4px 0 8px">nunca visitadas · menor Conexão primeiro</p><div class="fila">';
       if (!p.naoVisitadas.length) h += '<div class="vazio">Tudo visitado. 🏆</div>';
       p.naoVisitadas.forEach(function (a) {
         h += '<button class="item-agencia" type="button" data-prefixo="' + esc(a.prefixo) + '">' +
-          '<span class="selo-visita"></span>' +
-          '<span><span class="nome">' + esc(a.nome) + '</span><small>' +
-          esc(a.municipio || '') + '/' + esc(a.uf || '') + ' · ' + esc(a.regional || '') +
-          '</small></span>' +
-          (a.pontosAbertos ? '<span class="numeros">⚑ ' + a.pontosAbertos + '</span>' : '') +
-          '</button>';
+          '<span class="selo-visita"></span><span><span class="nome">' + esc(a.nome) + '</span><small>' +
+          esc(a.municipio || '') + '/' + esc(a.uf || '') + ' · ' + esc(a.regional || '') + '</small></span>' +
+          '<span class="numeros">' + (a.conexao != null ? 'Conexão ' + fmtInt(a.conexao) : '') +
+          (a.pontosAbertos ? '<br>⚑ ' + a.pontosAbertos : '') + '</span></button>';
       });
       h += '</div></div></div>';
 
-      h += '<div class="cartao"><div class="cartao-corpo">' +
-        '<h3>Próximas planejadas <span class="badge ouro">' + p.planejadas.length + '</span></h3>' +
-        '<div class="fila">';
-      if (!p.planejadas.length) h += '<div class="vazio">Nada no radar — planeje pela agência.</div>';
-      p.planejadas.forEach(function (v) {
-        h += '<button class="item-agencia" type="button" data-prefixo="' + esc(v.prefixo) + '">' +
-          '<span class="selo-visita"></span>' +
-          '<span><span class="nome">' + esc(v.nome) + '</span><small>' +
-          esc(v.municipio || '') + '/' + esc(v.uf || '') + '</small></span>' +
-          '<span class="numeros">' + fmtData(v.dataPlanejada) + '</span></button>';
+      h += '<div class="cartao"><div class="cartao-corpo"><h3>Agências frias <span class="badge ' + (p.frias.length ? 'ambar' : 'neutro') + '">' + p.frias.length + '</span></h3>' +
+        '<p class="rotulo" style="margin:-4px 0 8px">sem visita há mais de 120 dias</p><div class="fila">';
+      if (!p.frias.length) h += '<div class="vazio">Nenhuma agência esfriou. ✓</div>';
+      p.frias.forEach(function (a) {
+        h += '<button class="item-agencia" type="button" data-prefixo="' + esc(a.prefixo) + '">' +
+          '<span class="selo-visita"></span><span><span class="nome">' + esc(a.nome) + '</span><small>' +
+          esc(a.municipio || '') + '/' + esc(a.uf || '') + '</small></span>' +
+          '<span class="numeros">' + a.dias + ' dias<br><small>' + fmtData(a.ultimaVisita) + '</small></span></button>';
       });
       h += '</div></div></div>';
 
-      h += '<div class="cartao"><div class="cartao-corpo">' +
-        '<h3>Prazos estourados <span class="badge ' +
-        (p.pontosEstourados.length ? 'vinho' : 'neutro') + '">' +
-        p.pontosEstourados.length + '</span></h3><div class="fila">';
-      if (!p.pontosEstourados.length) h += '<div class="vazio">Nenhum prazo vencido. ✓</div>';
-      p.pontosEstourados.forEach(function (pt) {
-        h += '<button class="item-agencia" type="button" data-prefixo="' + esc(pt.prefixo) + '">' +
-          '<span><span class="nome">' + esc(pt.descricao) + '</span><small>' +
-          esc(pt.nome) + ' · previsto para ' + fmtData(pt.previsao) + '</small></span></button>';
-      });
-      h += '</div></div></div>';
+      h += '<div class="cartao"><div class="cartao-corpo"><h3>Evolução entre visitas</h3>' +
+        '<p class="rotulo" style="margin:-4px 0 8px">nota geral: anterior → última</p>';
+      var evol = (p.evolucao || []).filter(function (e) { return e.anterior != null; });
+      if (!evol.length) h += '<div class="vazio">Registre a segunda visita de uma agência para comparar.</div>';
+      else {
+        evol.sort(function (a, b) { return (a.delta || 0) - (b.delta || 0); });
+        h += '<table class="tabela cartoes"><thead><tr><th>Agência</th><th>Anterior</th><th>Última</th><th>Variação</th></tr></thead><tbody>';
+        evol.forEach(function (e) {
+          h += '<tr><td data-th="Agência"><button class="botao mini claro" data-prefixo="' + esc(e.prefixo) + '">' + esc(e.nome) + '</button></td>' +
+            '<td data-th="Anterior">' + e.anterior.toLocaleString('pt-BR') + '</td><td data-th="Última"><b>' + e.ultima.toLocaleString('pt-BR') + '</b></td>' +
+            '<td data-th="Variação"><span class="badge ' + (e.delta > 0 ? 'verde' : e.delta < 0 ? 'vinho' : 'neutro') + '">' +
+            (e.delta > 0 ? '▲ ' : e.delta < 0 ? '▼ ' : '') + Math.abs(e.delta).toLocaleString('pt-BR') + '</span></td></tr>';
+        });
+        h += '</tbody></table>';
+      }
+      h += '</div></div>';
 
-      h += '<div class="cartao"><div class="cartao-corpo">' +
-        '<h3>Fotos pendentes <span class="badge neutro">' + p.semFoto.length + '</span></h3>' +
-        '<div class="fila">';
+      h += '<div class="cartao"><div class="cartao-corpo"><h3>Fotos pendentes <span class="badge neutro">' + p.semFoto.length + '</span></h3><div class="fila">';
       if (!p.semFoto.length) h += '<div class="vazio">Todas as agências têm foto. 📸</div>';
       p.semFoto.forEach(function (a) {
         h += '<button class="item-agencia" type="button" data-prefixo="' + esc(a.prefixo) + '">' +
-          '<span><span class="nome">' + esc(a.nome) + '</span><small>' + esc(a.uf || '') +
-          '</small></span></button>';
+          '<span><span class="nome">' + esc(a.nome) + '</span><small>' + esc(a.uf || '') + '</small></span></button>';
       });
       h += '</div></div></div>';
 
-      h += '<div class="cartao"><div class="cartao-corpo">' +
-        '<h3>Minhas anotações</h3>' +
-        (App.contexto.master
-          ? '<div style="display:flex;gap:8px;margin-bottom:10px">' +
-            '<input type="text" id="plan-anotacao" style="flex:1" placeholder="anotar um lembrete geral…">' +
-            '<button class="botao claro" id="plan-anotar" type="button">Anotar</button></div>'
-          : '') +
+      h += '<div class="cartao"><div class="cartao-corpo"><h3>Minhas anotações</h3>' +
+        '<div style="display:flex;gap:8px;margin-bottom:10px">' +
+        '<input type="text" id="plan-anotacao" class="campo-input" style="flex:1" placeholder="anotar um lembrete geral…">' +
+        '<button class="botao claro" id="plan-anotar" type="button">Anotar</button></div>' +
         '<div class="fila" id="plan-notas">';
       (p.anotacoesGerais || []).forEach(function (a) { h += notaHtml(a); });
+      if (!(p.anotacoesGerais || []).length) h += '<div class="vazio">Sem lembretes gerais.</div>';
       h += '</div></div></div>';
 
       alvo.innerHTML = h;
+      animarContadores(alvo);
       $$('[data-prefixo]', alvo).forEach(function (b) {
-        b.addEventListener('click', function () {
-          abrirAgencia(b.getAttribute('data-prefixo'));
-        });
+        b.addEventListener('click', function () { abrirAgencia(b.getAttribute('data-prefixo')); });
       });
       var anotar = $('#plan-anotar');
       if (anotar) anotar.addEventListener('click', function () {
@@ -1186,17 +1680,153 @@
     });
   }
 
+  function kpi(valor, rotulo, cls) {
+    var n = typeof valor === 'number' ? valor : null;
+    return '<div class="tile' + (cls ? ' ' + cls : '') + '" style="cursor:default"><span class="valor"' +
+      (n != null ? ' data-n="' + n + '"' : '') + '>' + esc(String(valor)) + '</span><span class="rotulo">' + rotulo + '</span></div>';
+  }
+
+  /** Números sobem até o valor final (toque futurista, respeita reduced-motion). */
+  function animarContadores(raiz) {
+    if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    $$('.valor[data-n]', raiz).forEach(function (el) {
+      var fim = +el.getAttribute('data-n'), texto = el.textContent, t0 = performance.now(), dur = 650;
+      if (!isFinite(fim) || fim === 0) return;
+      function passo(t) {
+        var k = Math.min(1, (t - t0) / dur); k = 1 - Math.pow(1 - k, 3);
+        el.textContent = fmtInt(Math.round(fim * k));
+        if (k < 1) requestAnimationFrame(passo); else el.textContent = texto;
+      }
+      requestAnimationFrame(passo);
+    });
+  }
+
+  // ------------------------------------------------------------------ ações
+
+  var filtroAcoes = { chave: 'PENDENTES', prioridade: '', regional: '', texto: '' };
+
+  function carregarAcoes() {
+    var alvo = $('#grade-acoes');
+    alvo.innerHTML = '<div class="carregando">Carregando…</div>';
+    var q = [];
+    if (filtroAcoes.chave === 'PENDENTES' || filtroAcoes.chave === 'RESOLVIDO') q.push('status=' + filtroAcoes.chave);
+    if (filtroAcoes.chave === 'VENCIDAS' || filtroAcoes.chave === '7DIAS') q.push('prazo=' + filtroAcoes.chave);
+    if (filtroAcoes.prioridade) q.push('prioridade=' + filtroAcoes.prioridade);
+    if (filtroAcoes.regional) q.push('regional=' + encodeURIComponent(filtroAcoes.regional));
+    api('acoes' + (q.length ? '?' + q.join('&') : '')).then(function (lista) {
+      var t = filtroAcoes.texto.toLowerCase();
+      if (t) lista = lista.filter(function (a) {
+        return ((a.descricao || '') + ' ' + (a.agencia || '') + ' ' + (a.responsavel || '') + ' ' + (a.solucao || '')).toLowerCase().indexOf(t) >= 0;
+      });
+      var vencidas = lista.filter(function (a) { return a.vencida; }).length;
+      $('#acoes-resumo').textContent = lista.length + ' ação(ões)' + (vencidas ? ' · ' + vencidas + ' vencida(s)' : '');
+      if (!lista.length) { alvo.innerHTML = '<div class="vazio">Nenhuma ação neste filtro.</div>'; return; }
+      // agrupa por agência para a cobrança ficar organizada
+      var grupos = {};
+      lista.forEach(function (a) { (grupos[a.prefixo] = grupos[a.prefixo] || { nome: a.agencia, itens: [] }).itens.push(a); });
+      var h = '';
+      Object.keys(grupos).forEach(function (pfx) {
+        var g = grupos[pfx];
+        h += '<div class="painel-titulo" style="margin-top:14px"><h3 style="margin:0"><button class="botao mini claro" data-prefixo="' + esc(pfx) + '">' +
+          esc(g.nome || pfx) + '</button> <span class="badge neutro">' + g.itens.length + '</span></h3></div>';
+        g.itens.forEach(function (a) { h += acaoCardHtml(a, {}); });
+      });
+      alvo.innerHTML = h;
+      $$('[data-prefixo]', alvo).forEach(function (b) {
+        b.addEventListener('click', function () { abrirAgencia(b.getAttribute('data-prefixo')); });
+      });
+    }).catch(function (e) { alvo.innerHTML = '<div class="aviso">' + esc(e.message) + '</div>'; });
+  }
+
+  function ligarAcoes() {
+    var vista = $('#vista-acoes');
+    if (!vista) return;
+    $$('#acoes-status button').forEach(function (b) {
+      b.addEventListener('click', function () {
+        $$('#acoes-status button').forEach(function (x) { x.classList.remove('ativo'); });
+        b.classList.add('ativo');
+        filtroAcoes.chave = b.getAttribute('data-v');
+        carregarAcoes();
+      });
+    });
+    $('#acoes-prioridade').addEventListener('change', function () { filtroAcoes.prioridade = this.value; carregarAcoes(); });
+    $('#acoes-regional').addEventListener('change', function () { filtroAcoes.regional = this.value; carregarAcoes(); });
+    var timer;
+    $('#acoes-busca').addEventListener('input', function () {
+      clearTimeout(timer); var v = this.value;
+      timer = setTimeout(function () { filtroAcoes.texto = v.trim(); carregarAcoes(); }, 250);
+    });
+    // regionais do mapa já carregado
+    var regs = {};
+    (App.mapa.agencias || []).forEach(function (a) { if (a.regional) regs[a.regional] = 1; });
+    $('#acoes-regional').innerHTML = '<option value="">Todas as regionais</option>' +
+      Object.keys(regs).sort().map(function (r) { return '<option value="' + esc(r) + '">' + esc(r) + '</option>'; }).join('');
+    // delegação dos botões dos cards
+    $('#grade-acoes').addEventListener('click', function (ev) {
+      var b = ev.target.closest('[data-acao]');
+      var cartao = b && b.closest('[data-ponto]');
+      if (!b || !cartao) return;
+      tratarAcaoCard(b.getAttribute('data-acao'), cartao, function () { carregarAcoes(); atualizarContadorAcoes(); });
+    });
+  }
+
+  // ------------------------------------------------------------------ busca
+
+  function ligarBusca() {
+    var input = $('#busca-input'), res = $('#busca-res');
+    if (!input) return;
+    function fechar() { res.hidden = true; }
+    function render() {
+      var q = input.value.trim().toLowerCase();
+      if (!q) { fechar(); return; }
+      var itens = (App.mapa.agencias || []).filter(function (a) {
+        return (a.nome + ' ' + a.prefixo + ' ' + (a.municipio || '') + ' ' + (a.uf || '') + ' ' + (a.regional || ''))
+          .toLowerCase().indexOf(q) >= 0;
+      }).slice(0, 10);
+      res.innerHTML = itens.length ? itens.map(function (a) {
+        return '<button type="button" data-prefixo="' + esc(a.prefixo) + '"><span class="tipo">' + esc(a.uf || 'ag') + '</span>' +
+          '<span><b>' + esc(a.nome) + '</b><small>' + esc(a.prefixo) + ' · ' + esc(a.municipio || '') + ' · ' + esc(a.regional || '') + '</small></span></button>';
+      }).join('') : '<div class="vazio" style="border:none;padding:12px">Nada encontrado para “' + esc(q) + '”.</div>';
+      res.hidden = false;
+      $$('[data-prefixo]', res).forEach(function (b) {
+        b.addEventListener('click', function () { fechar(); input.value = ''; abrirAgencia(b.getAttribute('data-prefixo')); });
+      });
+    }
+    input.addEventListener('input', render);
+    input.addEventListener('focus', render);
+    input.addEventListener('keydown', function (ev) {
+      if (ev.key === 'Escape') { fechar(); input.blur(); }
+      if (ev.key === 'Enter') { var p = $('[data-prefixo]', res); if (p) p.click(); }
+    });
+    document.addEventListener('click', function (ev) { if (!ev.target.closest('.busca-topo')) fechar(); });
+    document.addEventListener('keydown', function (ev) {
+      if (ev.key === '/' && !/input|textarea|select/i.test(document.activeElement.tagName)) { ev.preventDefault(); input.focus(); }
+    });
+  }
+
   // ---------------------------------------------------------------- vistas
 
+  var TITULOS = { mapa: 'Atlas', planejamento: 'Minha gestão', acoes: 'Ações para dar retorno' };
+
   function trocarVista() {
-    var plan = location.hash === '#planejamento' && App.contexto && App.contexto.veTudo;
-    $('#vista-mapa').classList.toggle('ativa', !plan);
-    $('#vista-planejamento').classList.toggle('ativa', !!plan);
-    $$('.nav-principal a').forEach(function (a) {
-      var n = a.getAttribute('data-nav');
-      a.classList.toggle('ativa', plan ? n === 'planejamento' : n === 'mapa');
+    var h = (location.hash || '#mapa').replace('#', '');
+    if ((h === 'planejamento' || h === 'acoes') && !(App.contexto && App.contexto.master)) h = 'mapa';
+    if (!TITULOS[h]) h = 'mapa';
+    $('#vista-mapa').classList.toggle('ativa', h === 'mapa');
+    $('#vista-planejamento').classList.toggle('ativa', h === 'planejamento');
+    $('#vista-acoes').classList.toggle('ativa', h === 'acoes');
+    $$('#nav-lateral a').forEach(function (a) {
+      a.classList.toggle('ativa', a.getAttribute('data-nav') === h);
     });
-    if (plan) carregarPlanejamento();
+    $('#topo-titulo').textContent = TITULOS[h];
+    $('#conteudo').scrollTop = 0;
+    if (h === 'planejamento') carregarPlanejamento();
+    if (h === 'acoes') carregarAcoes();
+  }
+
+  function atualizarSubtitulo(texto) {
+    var el = $('#topo-sub');
+    if (el) el.innerHTML = '<span class="pulso"></span>' + esc(texto);
   }
 
   // ------------------------------------------------------------------ boot
@@ -1211,9 +1841,14 @@
       App.mapa = r[1];
       App.geo = r[2];
       App.proj = criarProjecao(App.geo);
+      document.documentElement.classList.toggle('master', !!App.contexto.master);
       desenharMapa();
       carregarPainel({});
+      ligarBusca();
+      if (App.contexto.master) { ligarAcoes(); atualizarContadorAcoes(); }
       trocarVista();
+      atualizarSubtitulo((App.contexto.regionalJurisdicao || 'Super Nacional Estilo') + ' · ' +
+        App.mapa.agencias.length + ' agência(s)' + (App.contexto.master ? '' : ' · visão ' + App.contexto.perfil.toLowerCase()));
       if (!App.mapa.agencias.length) {
         toast(App.contexto.master
           ? 'Nenhuma agência cadastrada — importe a planilha na tela Admin.'
@@ -1232,9 +1867,11 @@
     $('#grade-planejamento').addEventListener('click', function (ev) {
       var b = ev.target.closest('[data-acao]');
       if (!b) return;
-      var nota = b.closest('.nota');
+      var nota = b.closest('.nota'), cartao = b.closest('[data-ponto]');
       var acao = b.getAttribute('data-acao');
       var falha = function (e) { toast(e.message); };
+      if (cartao) { tratarAcaoCard(acao, cartao, function () { carregarPlanejamento(); atualizarContadorAcoes(); }); return; }
+      if (!nota) return;
       if (acao === 'fixar') {
         post('anotacao/' + nota.getAttribute('data-anotacao'),
           { fixada: nota.classList.contains('fixada') ? '0' : '1' })
