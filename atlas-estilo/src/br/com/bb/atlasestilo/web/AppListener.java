@@ -59,9 +59,15 @@ public class AppListener implements ServletContextListener {
 
         boolean exemplo = "true".equalsIgnoreCase(
                 String.valueOf(ctx.getInitParameter("atlas.dados.exemplo")));
-        if (exemplo && bancoVazio()) {
-            DadosExemplo.semear();
-            ctx.log("[atlasestilo] Banco vazio: dados de exemplo semeados.");
+        try {
+            // semeia só em banco vazio que nunca teve o exemplo limpo pelo Master:
+            // "limpar exemplo" antes do import real não pode ressuscitar as 26 agências no próximo boot
+            if (exemplo && bancoVazio() && !br.com.bb.atlasestilo.dao.ConfigDao.exemploLimpo()) {
+                DadosExemplo.semear();
+                ctx.log("[atlasestilo] Banco vazio: dados de exemplo semeados.");
+            }
+        } catch (java.sql.SQLException e) {
+            throw new IllegalStateException("Falha ao semear o exemplo.", e);
         }
 
         ctx.setAttribute(ATTR_FOTO_DIR, fotoDir);

@@ -154,8 +154,14 @@ public final class FonteService {
             FonteDao.fonteStatus(id, null, null, "SEM ARQUIVO", msg, null, null, agora);
             return Json.obj().put("erro", msg).fim();
         }
-        if (arq.length() > 60L * 1024 * 1024) {
-            return Json.obj().put("erro", "Arquivo acima de 60 MB: " + arq.getName()).fim();
+        // o arquivo inteiro vai para a memória (bytes + texto + células ≈ 10× o tamanho):
+        // na JVM x86 do servidor o teto efetivo é uma fração do heap, não 60 MB fixos
+        long teto = Math.min(60L * 1024 * 1024, Runtime.getRuntime().maxMemory() / 16);
+        if (arq.length() > teto) {
+            String msg = "Arquivo com " + (arq.length() / 1048576) + " MB excede o limite de " + (teto / 1048576) +
+                " MB desta instalação (memória da JVM do Tomcat): " + arq.getName();
+            FonteDao.fonteStatus(id, arq.getName(), null, "ERRO", msg, null, null, agora);
+            return Json.obj().put("erro", msg).fim();
         }
         byte[] dados = Files.readAllBytes(arq.toPath());
         return processarFonte(f, arq.getName(), dados, arq.lastModified(), confirmar, matricula, agora);

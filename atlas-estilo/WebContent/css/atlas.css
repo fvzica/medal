@@ -612,6 +612,13 @@ code{font-family:var(--ff-mono);font-size:12px;background:var(--bg-3);padding:1p
 .aviso-dia .botao.claro{background:rgba(255,255,255,.1);border-color:rgba(255,255,255,.25);color:#fff}
 .aviso-dia .fechar{background:none;border:none;color:#fff;opacity:.7;cursor:pointer;font-size:18px;line-height:1;padding:4px 6px}
 .aviso-dia .fechar:hover{opacity:1}
+/* matrícula em "somente leitura": vê tudo, mas os controles de gravação somem */
+html.somente-leitura #fv-form,html.somente-leitura #p-salvar,html.somente-leitura #a-salvar,html.somente-leitura #plan-anotar,
+html.somente-leitura #salvar-gmaps,html.somente-leitura .acao-card .acoes-nota,html.somente-leitura .acao-card .retorno,
+html.somente-leitura .acao-card .mini-form,html.somente-leitura .fotos-par .botao,html.somente-leitura .foto-add,
+html.somente-leitura .visita-card .acoes-nota,html.somente-leitura .nota .acoes-nota,html.somente-leitura #fv-modo{display:none!important}
+.aviso-dia.faixa-aviso{background:linear-gradient(90deg,#4a3b00,#6b5300);border-color:rgba(245,197,24,.5)}
+.item-agencia .selo-visita.planejada{background:var(--info);border-color:var(--info);box-shadow:0 0 6px rgba(37,99,235,.45)}
 .segmentado .contador.mini{display:inline-grid;place-items:center;min-width:18px;height:18px;padding:0 5px;border-radius:999px;
   background:var(--acento);color:var(--sobre-acento);font:700 10.5px/1 var(--ff-mono);margin-left:6px;vertical-align:1px}
 .tabela-acoes td .acao-card{margin:0;border:none;padding:0;background:none}

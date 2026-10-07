@@ -71,7 +71,8 @@
         <strong><%= br.com.bb.atlasestilo.util.Texto.esc(sessao.nome) %></strong>
         <small><%= br.com.bb.atlasestilo.util.Texto.esc(sessao.perfil) %><%=
             sessao.regionalJurisdicao != null
-                ? " · " + br.com.bb.atlasestilo.util.Texto.esc(sessao.regionalJurisdicao) : "" %></small>
+                ? " · " + br.com.bb.atlasestilo.util.Texto.esc(sessao.regionalJurisdicao) : "" %><%=
+            sessao.somenteLeitura ? " · somente leitura" : "" %></small>
       </span>
     </div>
     <% } %>

@@ -1,7 +1,23 @@
-Coloque aqui os binários do SSO do BB, copiados de uma ferramenta existente (ex.: boaspraticas):
+SSO do BB — o que fica nesta pasta (NADA disto entra no git)
 
-  br/com/bb/sso/filter/FilterOauth2.class
-  br/com/bb/sso/bean/Usuario.class
-  json-20230618.jar
+  br/com/bb/sso/filter/FilterOauth2.class   } binários do BB, copiados de uma
+  br/com/bb/sso/bean/Usuario.class          } ferramenta já implantada
+  json-20230618.jar                         } (ex.: boaspraticas, dashjunho)
+  oauth.properties                          } com o client_secret real
+                                              (modelo: oauth.properties.exemplo)
 
-O build.sh inclui tudo no WAR automaticamente quando presente.
+Com os quatro aqui, ./build.sh gera dist/atlasestilo.war completo e confere o
+conteúdo. Sem eles, gera dist/atlasestilo-sem-sso.war — que NÃO sobe no Tomcat
+(ClassNotFoundException do FilterOauth2) até ser completado.
+
+Para completar NO SERVIDOR, sem JDK, a partir do boaspraticas já implantado:
+
+  injetar-sso.bat [caminho\atlasestilo-sem-sso.war] [webapps\boaspraticas]
+
+O script copia FilterOauth2.class, Usuario.class, json-*.jar e o
+oauth.properties (trocando o redirect_uri para .../atlasestilo) para dentro do
+WAR e grava atlasestilo.war ao lado. Em Linux/macOS: injetar-sso.sh.
+
+Depois: copiar atlasestilo.war para <Tomcat>\webapps\ e deixá-lo lá. O
+redirect_uri https://super-pf1.intranet.bb.com.br/atlasestilo precisa estar
+registrado para o client_id SUPERPF1 (senão: redirect_uri_mismatch).

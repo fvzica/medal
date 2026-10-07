@@ -63,6 +63,14 @@ public final class ConfigDao {
         }
     }
 
+    public static boolean ehMaster(String matricula) throws SQLException {
+        try (Connection c = Db.conexao(); PreparedStatement ps = c.prepareStatement(
+                "SELECT 1 FROM config_master WHERE matricula = ?")) {
+            ps.setString(1, Texto.matricula(matricula));
+            try (ResultSet rs = ps.executeQuery()) { return rs.next(); }
+        }
+    }
+
     /** Recusa remover o último master. */
     public static boolean masterRemover(String matricula) throws SQLException {
         try (Connection c = Db.conexao()) {
@@ -172,8 +180,22 @@ public final class ConfigDao {
      * e os de gestão criados pelo gerador (criado_por='EXEMPLO'), incluindo as
      * anotações gerais (prefixo NULL) do exemplo.
      */
-    public static void limparExemplo() throws SQLException {
+    /**
+     * Apaga tudo que veio do gerador de exemplo (e o que foi registrado nas
+     * agências de exemplo), numa transação. Devolve os arquivos de foto a
+     * apagar do disco e marca que o exemplo foi limpo — a próxima subida não
+     * semeia de novo (ver AppListener).
+     */
+    public static java.util.List<String> limparExemplo() throws SQLException {
+        java.util.List<String> arquivos = new java.util.ArrayList<>();
         try (Connection c = Db.conexao(); Statement st = c.createStatement()) {
+            c.setAutoCommit(false);
+            try {
+            try (ResultSet rs = st.executeQuery("SELECT arquivo FROM foto WHERE prefixo IN " +
+                    "(SELECT prefixo FROM agencia WHERE origem = 'EXEMPLO') OR ponto_id IN (SELECT id FROM ponto_melhoria " +
+                    "WHERE criado_por = 'EXEMPLO' OR prefixo IN (SELECT prefixo FROM agencia WHERE origem = 'EXEMPLO'))")) {
+                while (rs.next()) arquivos.add(rs.getString(1));
+            }
             st.executeUpdate("DELETE FROM funci WHERE origem = 'EXEMPLO'");
             st.executeUpdate("DELETE FROM carteira WHERE origem = 'EXEMPLO'");
             st.executeUpdate("DELETE FROM pdg WHERE origem = 'EXEMPLO'");
@@ -193,6 +215,21 @@ public final class ConfigDao {
             st.executeUpdate("DELETE FROM foto WHERE prefixo IN " +
                              "(SELECT prefixo FROM agencia WHERE origem = 'EXEMPLO')");
             st.executeUpdate("DELETE FROM agencia WHERE origem = 'EXEMPLO'");
+            st.executeUpdate("INSERT INTO config_parametro (chave,valor,atualizado_por,atualizado_em) " +
+                             "VALUES ('exemplo.limpo','1','ADMIN'," + System.currentTimeMillis() + ") " +
+                             "ON CONFLICT(chave) DO UPDATE SET valor='1'");
+            c.commit();
+            } catch (SQLException e) { c.rollback(); throw e; }
+            finally { c.setAutoCommit(true); }
+        }
+        return arquivos;
+    }
+
+    /** O Master já limpou o exemplo alguma vez neste banco? */
+    public static boolean exemploLimpo() throws SQLException {
+        try (Connection c = Db.conexao(); Statement st = c.createStatement();
+             ResultSet rs = st.executeQuery("SELECT valor FROM config_parametro WHERE chave = 'exemplo.limpo'")) {
+            return rs.next() && "1".equals(rs.getString(1));
         }
     }
 }

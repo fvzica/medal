@@ -39,7 +39,18 @@ public final class MonitorCsv {
     }
 
     public static synchronized void parar() {
-        if (exec != null) { exec.shutdownNow(); exec = null; }
+        if (exec == null) return;
+        // no redeploy, espera a importação em andamento acabar: a versão nova não pode migrar o banco
+        // enquanto a thread antiga ainda escreve nele
+        exec.shutdownNow();
+        try {
+            if (!exec.awaitTermination(60, java.util.concurrent.TimeUnit.SECONDS)) {
+                LOG.warning("Monitor de CSV: importação ainda em andamento após 60 s no encerramento.");
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+        exec = null;
     }
 
     static void tique() {
@@ -65,6 +76,7 @@ public final class MonitorCsv {
             Json.Arr itens = Json.arr();
             int importadas = 0;
             for (Fonte f : FonteDao.fontes()) {
+                if (Thread.currentThread().isInterrupted()) break; // encerramento do contexto
                 if (!f.ativo || (!f.automatico && !forcar)) continue;
                 String acao, status = f.ultimoStatus;
                 try {

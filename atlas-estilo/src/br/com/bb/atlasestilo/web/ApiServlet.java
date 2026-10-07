@@ -155,8 +155,10 @@ public class ApiServlet extends HttpServlet {
                 case "export": {
                     if (!exigir(resp, s.master())) return;
                     String oque = cam.length > 1 ? cam[1] : "";
-                    if (oque.equals("visitas")) Http.download(resp, "visitas-atlas-estilo.csv", GestaoDao.csvVisitas());
-                    else if (oque.equals("acoes")) Http.download(resp, "acoes-atlas-estilo.csv", GestaoDao.csvAcoes(agora));
+                    String pfx = Texto.prefixo(Http.param(req, "prefixo", "")); // vazio = base inteira
+                    String sufixo = pfx.isEmpty() ? "" : "-" + pfx;
+                    if (oque.equals("visitas")) Http.download(resp, "visitas-atlas-estilo" + sufixo + ".csv", GestaoDao.csvVisitas(pfx));
+                    else if (oque.equals("acoes")) Http.download(resp, "acoes-atlas-estilo" + sufixo + ".csv", GestaoDao.csvAcoes(agora, pfx));
                     else Http.erro(resp, 404, "Export desconhecido (visitas | acoes).");
                     return;
                 }
@@ -166,9 +168,15 @@ public class ApiServlet extends HttpServlet {
                 default:
                     Http.erro(resp, 404, "Rota desconhecida: " + cam[0]);
             }
+        } catch (NumberFormatException e) {
+            Http.erro(resp, 400, "Identificador inválido na rota.");
         } catch (SQLException e) {
             log("Erro de banco em GET /" + String.join("/", cam), e);
             Http.erro(resp, 500, "Erro interno de banco de dados.");
+        } catch (RuntimeException e) {
+            // nunca deixar a página HTML de erro do Tomcat (com stack trace) chegar ao fetch
+            log("Erro em GET /" + String.join("/", cam), e);
+            Http.erro(resp, 500, "Erro interno.");
         }
     }
 
@@ -254,7 +262,31 @@ public class ApiServlet extends HttpServlet {
         } catch (SQLException e) {
             log("Erro de banco em POST /" + String.join("/", cam), e);
             Http.erro(resp, 500, "Erro interno de banco de dados.");
+        } catch (IllegalStateException e) {
+            // Tomcat lança IllegalStateException quando o multipart estoura o limite do web.xml
+            String ct = req.getContentType();
+            if (ct != null && ct.startsWith("multipart/")) {
+                Http.erro(resp, 413, "Arquivo acima de " + LIMITE_FOTO_MB + " MB ou envio acima de 40 MB no total.");
+            } else {
+                log("Erro em POST /" + String.join("/", cam), e);
+                Http.erro(resp, 500, "Erro interno.");
+            }
+        } catch (RuntimeException e) {
+            log("Erro em POST /" + String.join("/", cam), e);
+            Http.erro(resp, 500, "Erro interno.");
         }
+    }
+
+    /** Limite por foto (igual ao max-file-size do web.xml), para a mensagem ao usuário. */
+    private static final int LIMITE_FOTO_MB = 8;
+
+    /** Resposta das rotas de foto: 400 quando nada foi aceito, senão ok + gravadas + ignoradas. */
+    private static void responderFotos(HttpServletResponse resp, int gravadas, int ignoradas) throws IOException {
+        if (gravadas == 0 && ignoradas > 0) {
+            Http.erro(resp, 400, ignoradas + " arquivo(s) não aceito(s) — use JPG, PNG, WEBP ou GIF.");
+            return;
+        }
+        Http.json(resp, Json.obj().put("ok", gravadas > 0).put("gravadas", gravadas).put("ignoradas", ignoradas).fim());
     }
 
     private void postVisita(HttpServletRequest req, HttpServletResponse resp, Sessao s,
@@ -275,11 +307,11 @@ public class ApiServlet extends HttpServlet {
             long visitaId = Long.parseLong(cam[1]);
             String prefixo = GestaoDao.visitaPrefixo(visitaId);
             if (prefixo == null) { Http.erro(resp, 404, "Visita não encontrada."); return; }
-            int gravadas = 0;
+            int gravadas = 0, ignoradas = 0;
             for (Part p : req.getParts()) {
                 if (!"arquivo".equals(p.getName()) || p.getSize() == 0) continue;
                 String ext = extensaoImagem(p.getContentType());
-                if (ext == null) continue;
+                if (ext == null) { ignoradas++; continue; }
                 String id = UUID.randomUUID().toString().replace("-", "");
                 java.io.File destino = new java.io.File(dirFotos(), id + ext);
                 java.nio.file.Files.copy(p.getInputStream(), destino.toPath());
@@ -287,7 +319,7 @@ public class ApiServlet extends HttpServlet {
                         p.getContentType(), s.matricula, agora, visitaId, true);
                 gravadas++;
             }
-            Http.json(resp, Json.obj().put("ok", gravadas > 0).put("gravadas", gravadas).fim());
+            responderFotos(resp, gravadas, ignoradas);
             return;
         }
         String status = Http.param(req, "status", cam.length >= 2 ? null : "PLANEJADA");
@@ -298,7 +330,9 @@ public class ApiServlet extends HttpServlet {
         }
         Long dataPlanejada = lerData(req, "dataPlanejada");
         Long dataRealizada = lerData(req, "dataRealizada");
-        String resumo = Http.param(req, "resumo", null);
+        // resumo cru: ausente (null) mantém o atual; vazio ("") limpa na edição
+        String resumo = req.getParameter("resumo");
+        if (resumo != null) resumo = resumo.trim();
         GestaoDao.Checklist ck = lerChecklist(req);
         if (cam.length >= 2) {
             boolean ok = GestaoDao.visitaAtualizar(Long.parseLong(cam[1]), status,
@@ -385,11 +419,11 @@ public class ApiServlet extends HttpServlet {
             String momento = "DEPOIS".equals(req.getParameter("momento")) ? "DEPOIS" : "ANTES";
             String descricao = GestaoDao.pontoDescricao(pontoId);
             String legenda = (momento.equals("DEPOIS") ? "Depois · " : "Antes · ") + Texto.aparar(descricao, 120);
-            int gravadas = 0;
+            int gravadas = 0, ignoradas = 0;
             for (Part p : req.getParts()) {
                 if (!"arquivo".equals(p.getName()) || p.getSize() == 0) continue;
                 String ext = extensaoImagem(p.getContentType());
-                if (ext == null) continue;
+                if (ext == null) { ignoradas++; continue; }
                 String id = UUID.randomUUID().toString().replace("-", "");
                 java.io.File destino = new java.io.File(dirFotos(), id + ext);
                 java.nio.file.Files.copy(p.getInputStream(), destino.toPath());
@@ -397,7 +431,7 @@ public class ApiServlet extends HttpServlet {
                         s.matricula, agora, null, true, pontoId, momento);
                 gravadas++;
             }
-            Http.json(resp, Json.obj().put("ok", gravadas > 0).put("gravadas", gravadas).fim());
+            responderFotos(resp, gravadas, ignoradas);
             return;
         }
         // /api/ponto/{id}/verificar — conferência in loco: resultado=CONFIRMADO|NAO_FEITO (+ visitaId, texto)
@@ -509,6 +543,8 @@ public class ApiServlet extends HttpServlet {
                     Http.json(resp, Json.obj().put("ok", arquivo != null).fim());
                     return;
                 }
+                // getParts() primeiro: se o envio estourou o limite, o erro certo é 413 (e não "prefixo obrigatório")
+                java.util.Collection<Part> partes = req.getParts();
                 String prefixo = Texto.prefixo(Http.param(req, "prefixo", ""));
                 if (prefixo.isEmpty()) { Http.erro(resp, 400, "Prefixo obrigatório."); return; }
                 String tipo = Http.param(req, "tipo", "INTERNA");
@@ -517,12 +553,12 @@ public class ApiServlet extends HttpServlet {
                     Http.erro(resp, 400, "Tipo de foto inválido.");
                     return;
                 }
-                int gravadas = 0;
-                for (Part p : req.getParts()) {
+                int gravadas = 0, ignoradas = 0;
+                for (Part p : partes) {
                     if (!"arquivo".equals(p.getName()) || p.getSize() == 0) continue;
                     String mime = p.getContentType();
                     String ext = extensaoImagem(mime);
-                    if (ext == null) continue;
+                    if (ext == null) { ignoradas++; continue; }
                     String id = UUID.randomUUID().toString().replace("-", "");
                     String fisico = id + ext;
                     java.io.File destino = new java.io.File(dirFotos(), fisico);
@@ -531,8 +567,7 @@ public class ApiServlet extends HttpServlet {
                             req.getParameter("legenda"), fisico, mime, s.matricula, agora);
                     gravadas++;
                 }
-                Http.json(resp, Json.obj().put("ok", gravadas > 0)
-                        .put("gravadas", gravadas).fim());
+                responderFotos(resp, gravadas, ignoradas);
                 return;
             }
             case "master": {
@@ -543,6 +578,10 @@ public class ApiServlet extends HttpServlet {
                     return;
                 }
                 if (acao.equals("remover")) {
+                    if (Texto.matricula(matricula).equals(s.matricula)) {
+                        Http.erro(resp, 400, "Você não pode remover a própria matrícula dos masters — peça a outro master.");
+                        return;
+                    }
                     boolean ok = ConfigDao.masterRemover(matricula);
                     if (!ok) { Http.erro(resp, 400, "Não é possível remover o último master."); return; }
                 } else {
@@ -559,18 +598,27 @@ public class ApiServlet extends HttpServlet {
                     Http.erro(resp, 400, "Flag inválida.");
                     return;
                 }
-                ConfigDao.flagDefinir(matricula, flag, s.matricula, agora);
+                String alvo = Texto.matricula(matricula);
+                if (alvo.isEmpty()) { Http.erro(resp, 400, "Matrícula obrigatória."); return; }
+                if (!flag.isEmpty()) {
+                    // ninguém se tranca para fora, e um master não é restringido por outro sem antes sair dos masters
+                    if (alvo.equals(s.matricula)) { Http.erro(resp, 400, "Não é possível restringir a própria matrícula."); return; }
+                    if (ConfigDao.ehMaster(alvo)) { Http.erro(resp, 400, "Remova a matrícula dos masters antes de restringi-la."); return; }
+                }
+                ConfigDao.flagDefinir(alvo, flag, s.matricula, agora);
                 AuthFilter.invalidarPerfis(); // BLOQUEADO/SOMENTE_LEITURA valem já
                 Http.json(resp, Json.obj().put("ok", true).fim());
                 return;
             }
             case "exemplo": {
                 String acao = Http.param(req, "acao", "");
-                if (acao.equals("limpar")) {
-                    ConfigDao.limparExemplo();
-                } else if (acao.equals("recarregar")) {
-                    ConfigDao.limparExemplo();
-                    DadosExemplo.semear();
+                if (acao.equals("limpar") || acao.equals("recarregar")) {
+                    // fotos das agências de exemplo também saem do disco
+                    for (String arquivo : ConfigDao.limparExemplo()) {
+                        java.io.File f = new java.io.File(dirFotos(), arquivo);
+                        if (f.exists() && !f.delete()) f.deleteOnExit();
+                    }
+                    if (acao.equals("recarregar")) DadosExemplo.semear();
                 } else {
                     Http.erro(resp, 400, "Ação inválida.");
                     return;

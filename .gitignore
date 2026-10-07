@@ -1,2 +1,6 @@
 build/
 *.class
+# segredos e binários do SSO do BB ficam fora do repositório (copiados por máquina)
+atlas-estilo/terceiros/sso/oauth.properties
+atlas-estilo/terceiros/sso/*.jar
+atlas-estilo/WebContent/WEB-INF/classes/oauth.properties

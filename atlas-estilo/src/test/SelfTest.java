@@ -149,6 +149,21 @@ public final class SelfTest {
         verifica("reimport conta atualizado", denovo.contains("\"atualizados\":1"));
         verifica("import auditado",
                 contar("SELECT COUNT(*) FROM import_log WHERE tipo='agencias'") == 2);
+        // reimport só com prefixo;nome não pode apagar o que o arquivo não traz (link do Maps, regional, município)
+        try (Connection c = Db.conexao(); Statement st = c.createStatement()) {
+            st.executeUpdate("UPDATE agencia SET gmaps_url='https://www.google.com/maps/embed?pb=t' WHERE prefixo='7777'");
+        }
+        ImportService.processar("agencias", "so-nome.csv",
+                new ByteArrayInputStream("prefixo;nome\n7777;Estilo Teste Renomeada\n".getBytes(StandardCharsets.UTF_8)),
+                true, "F3548926", agora);
+        verifica("reimport parcial preserva gmaps_url, regional e município",
+                contar("SELECT COUNT(*) FROM agencia WHERE prefixo='7777' AND nome='Estilo Teste Renomeada' " +
+                       "AND gmaps_url LIKE 'https://%' AND regional='ESTILO SP INTERIOR' AND municipio='Sorocaba'") == 1);
+        ImportService.processar("agencias", "limpa-maps.csv",
+                new ByteArrayInputStream("prefixo;nome;gmaps_url\n7777;Estilo Teste Corrigida;\n".getBytes(StandardCharsets.UTF_8)),
+                true, "F3548926", agora);
+        verifica("coluna presente e vazia continua limpando",
+                contar("SELECT COUNT(*) FROM agencia WHERE prefixo='7777' AND gmaps_url IS NULL AND regional='ESTILO SP INTERIOR'") == 1);
 
         // CSV com aspas e vírgula
         List<String[]> linhas = Csv.ler(new ByteArrayInputStream(
@@ -204,6 +219,8 @@ public final class SelfTest {
                 contar("SELECT COUNT(*) FROM agencia WHERE origem='EXEMPLO'") == 0);
         verifica("limpar exemplo zera anotações do gerador",
                 contar("SELECT COUNT(*) FROM anotacao WHERE criado_por='EXEMPLO'") == 0);
+        verifica("limpar exemplo deixa a marca para o boot não semear de novo",
+                br.com.bb.atlasestilo.dao.ConfigDao.exemploLimpo());
         verifica("limpar exemplo não deixa linha do tempo nem foto órfã",
                 contar("SELECT COUNT(*) FROM acao_atualizacao WHERE ponto_id NOT IN (SELECT id FROM ponto_melhoria)") == 0
                 && contar("SELECT COUNT(*) FROM foto WHERE ponto_id IS NOT NULL AND ponto_id NOT IN (SELECT id FROM ponto_melhoria)") == 0);
@@ -250,6 +267,12 @@ public final class SelfTest {
         visitas = GestaoDao.visitas("9101");
         verifica("checklist preservado após atualização", visitas.contains("\"notaGeral\":8.5")
                 && visitas.contains("Resumo alterado"));
+        // resumo: null mantém, "" limpa (a tela apaga o campo de propósito)
+        verifica("atualizar com resumo null mantém", GestaoDao.visitaAtualizar(idVisita, null, null, null, null, agora + dia, null)
+                && GestaoDao.visitas("9101").contains("Resumo alterado"));
+        verifica("atualizar com resumo vazio limpa", GestaoDao.visitaAtualizar(idVisita, null, null, null, "", agora + dia, null)
+                && !GestaoDao.visitas("9101").contains("Resumo alterado")
+                && GestaoDao.visitas("9101").contains("\"notaGeral\":8.5"));
 
         // evolução entre visitas: a anterior (sem nota) + esta (8,5) aparecem no histórico
         verifica("duas visitas realizadas no histórico", ocorrencias(visitas, "\"REALIZADA\"") >= 2);
@@ -375,15 +398,57 @@ public final class SelfTest {
                 && ver.contains("\"verificadoVisitaId\":" + idVisitaAnterior) && ver.contains("\"comprovada\":true")
                 && ver.contains("porta funcionando"));
         verifica("linha do tempo registra a conferência", GestaoDao.atualizacoes(idVer).contains("\"tipo\":\"VERIFICACAO\""));
-        String semProva = GestaoDao.acoes(null, "RESOLVIDO", null, null, null, "SEM", agora + 40);
-        verifica("filtro sem prova lista só concluídas sem foto do depois", semProva.contains("Teste de ponto")
-                && !semProva.contains("\"id\":" + idVer + ","));
+        verifica("conferir de novo não duplica (só aguardando confere)",
+                !GestaoDao.pontoVerificar(idVer, true, idVisitaAnterior, null, "F3548926", agora + 35)
+                && ocorrencias(GestaoDao.atualizacoes(idVer), "\"tipo\":\"VERIFICACAO\"") == 2);
         List<String> arqAcao = br.com.bb.atlasestilo.dao.FotoDao.excluirDaAcao(idVer);
         verifica("fotos da ação removíveis", arqAcao.size() == 1 && arqAcao.get(0).equals("foto-acao-1.jpg"));
+        // "sem prova": conferida in loco (sem foto) NÃO entra; concluída só com texto entra
+        String semProva = GestaoDao.acoes(null, "RESOLVIDO", null, null, null, "SEM", agora + 40);
+        verifica("filtro sem prova respeita a conferência in loco", semProva.contains("Teste de ponto")
+                && !semProva.contains("\"id\":" + idVer + ","));
+        // reabrir apaga a prova antiga; concluir só com texto fica sem prova
+        GestaoDao.pontoComentar(idVer, "Voltou a dar problema", "ABERTO", "F3548926", agora + 50, "STATUS", null);
+        ver = objetoDe(GestaoDao.acoes("9102", "PENDENTES", null, null, null, agora + 50), "\"id\":" + idVer + ",");
+        verifica("reabrir limpa verificado/resolvido", ver.contains("\"verificadoEm\":null")
+                && ver.contains("\"verificadoVisitaId\":null") && ver.contains("\"resolvidoEm\":null"));
+        GestaoDao.pontoAtualizar(idVer, "RESOLVIDO", "fechada só com texto", null, agora + 60);
+        ver = objetoDe(GestaoDao.acoes("9102", "RESOLVIDO", null, null, null, agora + 60), "\"id\":" + idVer + ",");
+        verifica("concluída sem nova prova não é comprovada", ver.contains("\"comprovada\":false")
+                && ver.contains("\"verificadoEm\":null"));
+        verifica("…e aparece em sem prova", GestaoDao.acoes(null, "RESOLVIDO", null, null, null, "SEM", agora + 60)
+                .contains("\"id\":" + idVer + ","));
 
+        // prazo por dia-calendário: no dia do prazo ainda não venceu; na véspera faltam dias inteiros
+        long hoje0 = GestaoDao.inicioDia(agora);
+        long idHoje = GestaoDao.pontoCriar("9102", "Vence hoje ao meio-dia", hoje0 + 12 * 3600000L, "F3548926", agora, null, null, "MEDIA");
+        long idOntem = GestaoDao.pontoCriar("9102", "Venceu ontem", hoje0 - 1, "F3548926", agora, null, null, "MEDIA");
+        String aHoje = objetoDe(GestaoDao.acoes("9102", "PENDENTES", null, null, null, agora), "\"id\":" + idHoje + ",");
+        String aOntem = objetoDe(GestaoDao.acoes("9102", "PENDENTES", null, null, null, agora), "\"id\":" + idOntem + ",");
+        verifica("prazo de hoje não está vencido e faltam 0 dias", aHoje.contains("\"vencida\":false") && aHoje.contains("\"diasParaPrazo\":0"));
+        verifica("prazo de ontem está vencido", aOntem.contains("\"vencida\":true") && aOntem.contains("\"diasParaPrazo\":-1"));
+        verifica("VENCIDAS e 7DIAS separam hoje de ontem",
+                !GestaoDao.acoes("9102", null, "VENCIDAS", null, null, agora).contains("\"id\":" + idHoje + ",")
+                && GestaoDao.acoes("9102", null, "VENCIDAS", null, null, agora).contains("\"id\":" + idOntem + ",")
+                && GestaoDao.acoes("9102", null, "7DIAS", null, null, agora).contains("\"id\":" + idHoje + ",")
+                && !GestaoDao.acoes("9102", null, "7DIAS", null, null, agora).contains("\"id\":" + idOntem + ","));
+        verifica("visita planejada ontem está atrasada; hoje não",
+                GestaoDao.visitaAtrasada(hoje0 - 1, agora) && !GestaoDao.visitaAtrasada(hoje0 + 1000, agora));
+        GestaoDao.pontoExcluir(idHoje); GestaoDao.pontoExcluir(idOntem);
+
+        long idVisHoje = GestaoDao.visitaCriar("9101", "PLANEJADA", agora, null, "Visita de hoje", "F3548926", agora);
+        long idVisAtras = GestaoDao.visitaCriar("9102", "PLANEJADA", agora - 3 * dia, null, "Visita atrasada", "F3548926", agora);
         String dia1 = GestaoDao.resumoDoDia(agora);
-        verifica("resumo do dia", dia1.contains("\"cobrarHoje\":") && dia1.contains("\"paradas\":")
-                && dia1.contains("\"aConferir\":") && dia1.contains("\"visitasHoje\":"));
+        verifica("resumo do dia conta visitas de hoje e atrasadas", dia1.contains("\"cobrarHoje\":")
+                && dia1.matches("(?s).*\"paradas\":[1-9].*") && dia1.contains("\"aConferir\":0")
+                && dia1.contains("\"visitasHoje\":1") && dia1.matches("(?s).*\"visitasAtrasadas\":[1-9].*"));
+        String planHoje = GestaoDao.planejamento(agora);
+        verifica("planejamento marca a visita atrasada e a de hoje na semana",
+                objetoDe(planHoje, "\"id\":" + idVisAtras + ",").contains("\"atrasada\":true")
+                && objetoDe(planHoje, "\"id\":" + idVisHoje + ",").contains("\"estaSemana\":true"));
+        GestaoDao.visitaExcluir(idVisHoje); GestaoDao.visitaExcluir(idVisAtras);
+        verifica("masters conhecidos", br.com.bb.atlasestilo.dao.ConfigDao.ehMaster("F3548926")
+                && !br.com.bb.atlasestilo.dao.ConfigDao.ehMaster("F0000002"));
 
         // planejamento: KPIs, agenda e evolução
         String plan = GestaoDao.planejamento(agora);
@@ -404,7 +469,10 @@ public final class SelfTest {
         String csvA = GestaoDao.csvAcoes(agora);
         verifica("CSV de ações", csvA.startsWith("id;prefixo;") && csvA.contains("Trocar letreiro")
                 && csvA.contains("no prazo") && csvA.contains(";Ger. Adm;")
-                && csvA.contains(";cobrancas;") && csvA.contains(";fotos_depois;") && csvA.contains("· cobrar"));
+                && csvA.contains(";registros;cobrancas;") && csvA.contains(";fotos_depois;") && csvA.contains("· cobrar"));
+        verifica("CSV por agência filtra", GestaoDao.csvAcoes(agora, "9101").contains("Trocar letreiro")
+                && !GestaoDao.csvAcoes(agora, "9105").contains("Trocar letreiro")
+                && GestaoDao.csvVisitas("9101").contains("\n9101;") && !GestaoDao.csvVisitas("9105").contains("\n9101;"));
 
         // privacidade: só o Master enxerga visitas/ações nos agregados
         String mapaMaster = AgenciaDao.mapa(master);
@@ -433,7 +501,9 @@ public final class SelfTest {
                 "/api/mapa".equals(br.com.bb.atlasestilo.web.AuthFilter.normalizar("/css/../api/mapa"))
                 && br.com.bb.atlasestilo.web.AuthFilter.normalizar("/../x") == null
                 && "/css/a.css".equals(br.com.bb.atlasestilo.web.AuthFilter.normalizar("/css/./a.css"))
-                && "/js/atlas.js".equals(br.com.bb.atlasestilo.web.AuthFilter.normalizar("/js/atlas.js")));
+                && "/js/atlas.js".equals(br.com.bb.atlasestilo.web.AuthFilter.normalizar("/js/atlas.js"))
+                && br.com.bb.atlasestilo.web.AuthFilter.normalizar("/css/..;/api/x") == null
+                && br.com.bb.atlasestilo.web.AuthFilter.normalizar("/css/%2e%2e/api/x") == null);
 
         // excluir a visita apaga as fotos dela e solta a ação (que não some)
         List<String> arquivos = br.com.bb.atlasestilo.dao.FotoDao.excluirDaVisita(idVisita);

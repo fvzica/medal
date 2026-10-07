@@ -47,6 +47,9 @@
   }
 
   function post(rota, dados) {
+    if (App.contexto && App.contexto.somenteLeitura) {
+      return Promise.reject(new Error('Sua matrícula está em modo somente leitura — nada é gravado.'));
+    }
     var corpo = new URLSearchParams();
     Object.keys(dados || {}).forEach(function (k) {
       if (dados[k] != null) corpo.append(k, dados[k]);
@@ -517,8 +520,11 @@
     return q.length ? '?' + q.join('&') : '';
   }
 
+  var seqPainel = 0; // o painel só mostra a resposta do último filtro pedido
+
   function carregarPainel(f) {
     var alvo = $('#painel-regiao');
+    var meu = ++seqPainel;
     alvo.innerHTML = '<div class="cartao"><div class="cartao-corpo">' +
       '<div class="carregando">Somando a região…</div></div></div>';
     var pedidos = [
@@ -527,8 +533,10 @@
     ];
     if (f.uf && !f.municipio) pedidos.push(api('municipios?uf=' + encodeURIComponent(f.uf)));
     Promise.all(pedidos).then(function (r) {
+      if (meu !== seqPainel) return;
       renderPainel(f, r[0], r[1], r[2] || null);
     }).catch(function (e) {
+      if (meu !== seqPainel) return;
       alvo.innerHTML = '<div class="cartao"><div class="cartao-corpo">' +
         '<div class="aviso">' + esc(e.message) + '</div></div></div>';
     });
@@ -703,12 +711,21 @@
    * Abre (ou recarrega) o drawer da agência. `estado` (opcional) devolve o
    * usuário à mesma aba e à mesma rolagem depois de salvar algo.
    */
+  var seqAgencia = 0; // descarta respostas antigas quando o usuário abre outra agência antes da anterior chegar
+
   function abrirAgencia(prefixo, estado) {
     var drawer = $('#drawer-agencia');
+    // trocar de agência com um checklist em preenchimento pede confirmação (recarregar a mesma não)
+    if (!estado && formVisita.sujo && !(App.agencia && App.agencia.agencia.prefixo === prefixo)) {
+      if (!confirm('Há um checklist de visita não salvo. Abrir outra agência e descartá-lo?')) return;
+      formVisita.sujo = false;
+    }
+    var meu = ++seqAgencia;
     $('#veu').classList.add('aberto');
     drawer.classList.add('aberto');
     if (!estado) $('#ag-corpo').innerHTML = '<div class="carregando">Abrindo a agência…</div>';
     api('agencia/' + prefixo).then(function (d) {
+      if (meu !== seqAgencia || !drawer.classList.contains('aberto')) return;
       App.agencia = d;
       renderAgencia(d);
       if (estado) {
@@ -718,6 +735,7 @@
         drawer.scrollTop = 0;
       }
     }).catch(function (e) {
+      if (meu !== seqAgencia) return;
       $('#ag-corpo').innerHTML = '<div class="aviso">' + esc(e.message) + '</div>';
     });
   }
@@ -737,10 +755,16 @@
     return { aba: ativa ? ativa.getAttribute('data-aba') : null, rolagem: $('#drawer-agencia').scrollTop };
   }
 
+  /** Fecha o drawer; com checklist em preenchimento, pede confirmação. Devolve false se o usuário desistiu. */
   function fecharAgencia() {
+    if (formVisita.sujo && $('#fv-form')) {
+      if (!confirm('Há um checklist de visita não salvo. Fechar e descartar?')) return false;
+    }
+    formVisita.sujo = false;
     $('#drawer-agencia').classList.remove('aberto');
     if (!$('#painel-dash').classList.contains('aberto')) $('#veu').classList.remove('aberto');
     App.agencia = null;
+    return true;
   }
 
   function fachadaHtml(d) {
@@ -757,8 +781,9 @@
         '&z=18&t=k&output=embed" loading="lazy"></iframe>';
     } else {
       h += '<div class="sem-imagem"><div><p style="font-size:40px;margin:0">🏛</p>' +
-        '<p>Sem imagem da fachada ainda.<br><small>O Master pode subir uma foto na tela Admin' +
-        ' ou colar um link de embed do Google Maps.</small></p></div></div>';
+        '<p>Sem imagem da fachada ainda.' + (App.contexto.master
+          ? '<br><small>Suba uma foto na tela Admin ou cole um link de embed do Google Maps logo abaixo.</small>' : '') +
+        '</p></div></div>';
     }
     h += '<button class="porta" id="botao-porta" type="button" ' +
       'title="Entrar na agência">Entrar · dashboard</button></div>';
@@ -874,13 +899,28 @@
     }
 
     h += '</div></div>';
+    // checklist em preenchimento sobrevive ao re-render (anotar, fixar, cobrar… recarregam o drawer)
+    var formAntigo = formVisita.sujo ? $('#fv-form') : null;
+    if (formAntigo) formAntigo.parentNode.removeChild(formAntigo);
     $('#ag-corpo').innerHTML = h;
+    var manterForm = false;
+    if (formAntigo) {
+      var formNovo = $('#fv-form');
+      if (formNovo) {
+        formNovo.parentNode.replaceChild(formAntigo, formNovo);
+        manterForm = true;
+        var modo = $('#fv-modo');
+        if (modo) modo.textContent = formVisita.editando ? 'editando visita · não salvo' : 'nova visita · não salvo';
+      } else {
+        formVisita.sujo = false;
+      }
+    }
 
     $('#botao-porta').addEventListener('click', function () { abrirDash(d); });
     $$('#ag-abas button').forEach(function (b) {
       b.addEventListener('click', function () { ativarAba(b.getAttribute('data-aba')); });
     });
-    if (App.contexto.master) ligarGestao(d);
+    if (App.contexto.master) ligarGestao(d, manterForm);
   }
 
   function pdgTimelineHtml(hist) {
@@ -939,7 +979,10 @@
   /** Envia fotos (reduzidas) para uma rota multipart; `extra` são campos de formulário. */
   function enviarFotos(rota, arquivos, extra) {
     var lista = [].slice.call(arquivos || []);
-    if (!lista.length) return Promise.resolve({ ok: false, gravadas: 0 });
+    if (!lista.length) return Promise.resolve({ ok: false, gravadas: 0, enviadas: 0, ignoradas: 0 });
+    if (App.contexto && App.contexto.somenteLeitura) {
+      return Promise.reject(new Error('Sua matrícula está em modo somente leitura — nada é gravado.'));
+    }
     return Promise.all(lista.map(function (f) { return reduzirImagem(f); })).then(function (blobs) {
       var fd = new FormData();
       Object.keys(extra || {}).forEach(function (k) { if (extra[k] != null) fd.append(k, extra[k]); });
@@ -947,8 +990,20 @@
         var nome = (lista[i].name || 'foto').replace(/\.\w+$/, '') + (b.type === 'image/jpeg' ? '.jpg' : '');
         fd.append('arquivo', b, nome);
       });
-      return api(rota, { method: 'POST', body: fd });
+      return api(rota, { method: 'POST', body: fd }).then(function (r) {
+        r.enviadas = blobs.length;
+        r.ignoradas = r.ignoradas || 0;
+        return r;
+      });
     });
+  }
+
+  /** Texto curto do resultado de um envio de fotos ("2 fotos guardadas · 1 não aceita"). */
+  function resumoFotos(r) {
+    if (!r) return '';
+    var t = r.gravadas + ' foto(s) guardada(s)';
+    if (r.ignoradas) t += ' · ' + r.ignoradas + ' não aceita(s) (use JPG, PNG, WEBP ou GIF)';
+    return t;
   }
 
   /** Abre o seletor de arquivos e devolve os escolhidos (Promise). */
@@ -1014,7 +1069,8 @@
     h += checklistFormHtml(null);
 
     h += '<div class="painel-titulo" style="margin-top:22px"><h3 style="margin:0">Histórico · ' + reals.length +
-      ' visita(s) realizada(s)</h3><a class="botao mini claro" href="' + CTX + '/api/export/visitas">Exportar CSV</a></div>';
+      ' visita(s) realizada(s)</h3><a class="botao mini claro" href="' + CTX + '/api/export/visitas?prefixo=' + encodeURIComponent(d.agencia.prefixo) +
+      '" title="CSV só desta agência">Exportar visitas desta agência</a></div>';
     if (reals.length > 1) h += evolucaoHtml(reals);
     (d.visitas || []).forEach(function (v, i) {
       var anterior = v.status === 'REALIZADA' ? reals[reals.indexOf(v) + 1] : null;
@@ -1051,7 +1107,7 @@
     CRITERIOS.forEach(function (c) {
       var val = v[c[0]] || 0;
       h += '<div class="criterio"><div class="cab"><span class="nome">' + c[1] + '</span>' +
-        '<span class="lido" id="fv-' + c[0] + '-lido">' + (val ? val + ' de 5' : 'toque para avaliar') + '</span></div>' +
+        '<span class="lido" id="fv-' + c[0] + '-lido">' + (val ? val + ' de 5' : 'clique para avaliar') + '</span></div>' +
         '<div class="pontos-toque" data-criterio="' + c[0] + '">';
       for (var i = 1; i <= 5; i++) {
         h += '<button type="button" data-v="' + i + '" class="' + (val === i ? 'sel' : val > i ? 'marcado' : '') + '">' + i + '</button>';
@@ -1073,7 +1129,7 @@
       '<input type="range" id="fv-nota" min="0" max="10" step="0.5" value="' + (v.notaGeral != null ? v.notaGeral : 7) + '"></div></div></div>';
     // chips padrão + as melhorias livres já gravadas nesta visita (para poder desmarcar)
     var chipsMelhorias = MELHORIAS.concat((v.melhorias || []).filter(function (m) { return MELHORIAS.indexOf(m) < 0; }));
-    h += '<div class="campo"><label>O que precisa melhorar · toque para marcar</label><div class="chips" id="fv-melhorias" style="margin:0">' +
+    h += '<div class="campo"><label>O que precisa melhorar · clique para marcar</label><div class="chips" id="fv-melhorias" style="margin:0">' +
       chipsMelhorias.map(function (m) {
         return '<button type="button" class="chip' + ((v.melhorias || []).indexOf(m) >= 0 ? ' ativo' : '') + '" data-m="' + esc(m) + '">' + esc(m) + '</button>';
       }).join('') + '<input type="text" id="fv-melhoria-outra" class="campo-input" placeholder="outro ponto… (Enter)" style="min-height:30px;padding:4px 10px;font-size:12.5px"></div></div>';
@@ -1178,7 +1234,8 @@
       '<select id="p-prio" class="campo-input"><option value="MEDIA">Média</option><option value="ALTA">Alta</option><option value="BAIXA">Baixa</option></select>' +
       '<button class="botao primario" id="p-salvar" type="button">Criar</button></div></div></div>';
     h += '<div class="painel-titulo" style="margin-top:16px"><h3 style="margin:0">Pendentes <span class="badge ' + (pend.length ? 'ambar' : 'verde') + '">' + pend.length + '</span></h3>' +
-      '<a class="botao mini claro" href="' + CTX + '/api/export/acoes">Exportar CSV</a></div>';
+      '<a class="botao mini claro" href="' + CTX + '/api/export/acoes?prefixo=' + encodeURIComponent(d.agencia.prefixo) +
+      '" title="CSV só desta agência">Exportar ações desta agência</a></div>';
     if (!pend.length) h += '<div class="vazio">Nada pendente nesta agência. ✓</div>';
     pend.forEach(function (p) { h += acaoCardHtml(p, {}); });
     if (feitas.length) {
@@ -1267,14 +1324,15 @@
 
   var formVisita = { criterios: {}, melhorias: [], fotos: [], acoes: [], editando: null };
 
-  function ligarGestao(d) {
+  /** `manterForm`: o formulário da visita foi preservado do render anterior (já tem listeners e estado). */
+  function ligarGestao(d, manterForm) {
     var prefixo = d.agencia.prefixo;
     var raiz = $('#ag-corpo');
 
     var salvarGmaps = $('#salvar-gmaps', raiz);
     if (salvarGmaps) salvarGmaps.addEventListener('click', function () {
       post('agencia/' + prefixo + '/gmaps', { url: $('#ag-gmaps').value.trim() })
-        .then(function () { toast('Link do Maps salvo.'); abrirAgencia(prefixo); })
+        .then(function () { toast('Link do Maps salvo.'); recarregar(prefixo); })
         .catch(function (e) { toast(e.message); });
     });
 
@@ -1297,7 +1355,7 @@
         .catch(function (e) { toast(e.message); });
     });
 
-    ligarFormVisita(d, null);
+    if (!manterForm) ligarFormVisita(d, null);
   }
 
   function ligarFormVisita(d, v) {
@@ -1402,14 +1460,26 @@
     $('#fv-foto-add', form).addEventListener('click', function () {
       var input = $('#foto-visita-input');
       input.onchange = function () {
-        [].slice.call(this.files).forEach(function (f) { if (formVisita.fotos.length < 12) formVisita.fotos.push(f); });
+        var fs = [].slice.call(this.files), vaga = Math.max(0, 12 - formVisita.fotos.length);
+        if (fs.length > vaga) toast(vaga ? 'Até 12 fotos por visita · entraram as ' + vaga + ' primeiras.' : 'Até 12 fotos por visita · a grade já está cheia.');
+        fs.slice(0, vaga).forEach(function (f) { formVisita.fotos.push(f); });
         this.value = '';
+        formVisita.sujo = true;
         renderFotosForm();
       };
       input.click();
     });
     var cancelar = $('#fv-cancelar', form);
-    if (cancelar) cancelar.addEventListener('click', function () { recarregar(prefixo); });
+    if (cancelar) cancelar.addEventListener('click', function () { formVisita.sujo = false; recarregar(prefixo); });
+
+    // qualquer mexida marca o formulário como "em preenchimento" (fechar/recarregar passam a pedir confirmação)
+    function sujar() { formVisita.sujo = true; }
+    form.addEventListener('input', sujar);
+    form.addEventListener('change', sujar);
+    form.addEventListener('click', function (ev) {
+      var b = ev.target.closest('button');
+      if (b && b.id !== 'fv-salvar' && b.id !== 'fv-cancelar') sujar();
+    });
 
     $('#fv-salvar', form).addEventListener('click', function () {
       var status = $('#fv-status', form).value;
@@ -1431,32 +1501,48 @@
       }
       var btn = this; btn.disabled = true;
       var pedido = formVisita.editando ? post('visita/' + formVisita.editando, dados) : post('visita', dados);
+      var nAcoes = formVisita.acoes.length, conferidas = 0, fotosR = null;
       pedido.then(function (r) {
         var visitaId = formVisita.editando || r.id;
-        // a visita já existe: se uma ação/foto falhar, o novo clique atualiza em vez de duplicar
+        // a visita já existe: se uma ação/foto falhar, o novo clique atualiza em vez de duplicar;
+        // cada passo sai da lista assim que grava, então o reenvio só repete o que faltou
         formVisita.editando = visitaId;
-        var depois = [];
-        formVisita.acoes.forEach(function (a) {
-          depois.push(post('ponto', { prefixo: prefixo, descricao: a.texto, previsao: a.prazo,
-            responsavel: a.responsavel, prioridade: a.prioridade, visitaId: visitaId }));
+        var passos = Promise.resolve();
+        formVisita.acoes.slice().forEach(function (a) {
+          passos = passos.then(function () {
+            return post('ponto', { prefixo: prefixo, descricao: a.texto, previsao: a.prazo,
+              responsavel: a.responsavel, prioridade: a.prioridade, visitaId: visitaId });
+          }).then(function () {
+            var i = formVisita.acoes.indexOf(a); if (i >= 0) formVisita.acoes.splice(i, 1);
+          });
         });
-        var conferidas = 0;
         if (status !== 'PLANEJADA') {
           Object.keys(formVisita.conferencias).forEach(function (pid) {
-            conferidas++;
-            depois.push(post('ponto/' + pid + '/verificar', { resultado: formVisita.conferencias[pid], visitaId: visitaId }));
+            passos = passos.then(function () {
+              return post('ponto/' + pid + '/verificar', { resultado: formVisita.conferencias[pid], visitaId: visitaId });
+            }).then(function () { conferidas++; delete formVisita.conferencias[pid]; });
           });
+          if (formVisita.fotos.length) {
+            passos = passos.then(function () { return enviarFotos('visita/' + visitaId + '/foto', formVisita.fotos); })
+              .then(function (r) { fotosR = r; formVisita.fotos = []; });
+          }
         }
-        if (formVisita.fotos.length && status !== 'PLANEJADA') {
-          depois.push(enviarFotos('visita/' + visitaId + '/foto', formVisita.fotos));
-        }
-        return Promise.all(depois).then(function () {
+        return passos.then(function () {
+          formVisita.sujo = false;
           toast(status === 'PLANEJADA' ? 'Visita agendada.' : 'Visita registrada ✓' +
-            (formVisita.acoes.length ? ' · ' + formVisita.acoes.length + ' ação(ões) na sua fila' : '') +
-            (conferidas ? ' · ' + conferidas + ' conferida(s)' : ''));
+            (nAcoes ? ' · ' + nAcoes + ' ação(ões) na sua fila' : '') +
+            (conferidas ? ' · ' + conferidas + ' conferida(s)' : '') +
+            (fotosR && fotosR.ignoradas ? ' · ' + fotosR.ignoradas + ' foto(s) não aceita(s)' : ''));
           recarregar(prefixo); atualizarContadorAcoes();
         });
-      }).catch(function (e) { btn.disabled = false; toast(e.message); });
+      }).catch(function (e) {
+        btn.disabled = false;
+        toast(e.message);
+        if (formVisita.editando) {
+          btn.textContent = 'Reenviar o que faltou';
+          var modo = $('#fv-modo'); if (modo) modo.textContent = 'visita gravada · faltou completar ações/fotos — reenvie';
+        }
+      });
     });
   }
 
@@ -1479,6 +1565,8 @@
     if (acao === 'realizar' || acao === 'editar-visita') {
       var v = visitaDe();
       if (!v) return;
+      if (formVisita.sujo && !confirm('Descartar o checklist em preenchimento?')) return;
+      formVisita.sujo = false;
       if (acao === 'realizar') { v = Object.assign({}, v, { status: 'REALIZADA', dataRealizada: Date.now() }); }
       var atual = $('#fv-form');
       var novo = document.createElement('div');
@@ -1487,7 +1575,9 @@
       ligarFormVisita(App.agencia, v);
       $('#fv-form').scrollIntoView({ behavior: 'smooth', block: 'start' });
     } else if (acao === 'excluir-visita') {
-      if (!confirm('Excluir esta visita e suas notas?')) return;
+      var vx = visitaDe(), nFotos = vx && vx.fotos ? vx.fotos.length : 0;
+      if (!confirm('Excluir esta visita, suas notas' + (nFotos ? ' e ' + nFotos + ' foto(s) (apagadas do disco)' : '') +
+          '? As ações ligadas a ela continuam na fila, soltas da visita.')) return;
       post('visita/' + cartaoVisita.getAttribute('data-visita') + '/excluir', {})
         .then(function () { recarregar(prefixo); }).catch(falha);
     } else if (acao === 'foto-visita') {
@@ -1495,7 +1585,7 @@
         if (!fs.length) return;
         toast('Enviando foto(s)…');
         return enviarFotos('visita/' + cartaoVisita.getAttribute('data-visita') + '/foto', fs)
-          .then(function (r) { toast(r.gravadas + ' foto(s) guardada(s).'); recarregar(prefixo); });
+          .then(function (r) { toast(resumoFotos(r)); recarregar(prefixo); });
       }).catch(falha);
     } else if (acao === 'fixar') {
       post('anotacao/' + nota.getAttribute('data-anotacao'), { fixada: nota.classList.contains('fixada') ? '0' : '1' })
@@ -1544,12 +1634,24 @@
   }
 
   /** Botões de um card de ação (compartilhado pela agência, pela vista Ações e pelo planejamento). */
+  /** Ações que gravam: um clique por vez por card (duplo clique não duplica registros). */
+  var ACOES_QUE_GRAVAM = { tratar: 1, reabrir: 1, 'resolver-enviar': 1, 'informou-enviar': 1, confirmar: 1,
+    'nao-feito': 1, cobrei: 1, 'retorno-enviar': 1, 'excluir-ponto': 1 };
+
   function tratarAcaoCard(acao, cartao, depois) {
     var id = cartao.getAttribute('data-ponto');
-    var falha = function (e) { toast(e.message); };
+    if (ACOES_QUE_GRAVAM[acao]) {
+      if (cartao._emVoo) return;
+      cartao._emVoo = true;
+      var depoisOriginal = depois;
+      depois = function () { cartao._emVoo = false; depoisOriginal(); };
+    }
+    var falha = function (e) { cartao._emVoo = false; toast(e.message); };
     var subirFotosMini = function (momento) {
-      return (cartao._fotosMini || []).length ? enviarFotos('ponto/' + id + '/foto', cartao._fotosMini, { momento: momento }) : Promise.resolve();
+      return (cartao._fotosMini || []).length ? enviarFotos('ponto/' + id + '/foto', cartao._fotosMini, { momento: momento }) : Promise.resolve(null);
     };
+    // validações locais que desistem antes de gravar precisam soltar a trava
+    var desistir = function (msg) { cartao._emVoo = false; if (msg) toast(msg); };
     if (acao === 'tratar') {
       post('ponto/' + id + '/comentar', { status: 'EM_TRATATIVA', texto: 'Tratativa iniciada', tipo: 'STATUS' }).then(depois).catch(falha);
     } else if (acao === 'reabrir') {
@@ -1560,21 +1662,23 @@
       $('[data-mini]', cartao).hidden = true;
     } else if (acao === 'mini-foto') {
       escolherFotos('foto-acao-input').then(function (fs) {
+        var antes = (cartao._fotosMini || []).length;
         cartao._fotosMini = (cartao._fotosMini || []).concat(fs).slice(0, 6);
+        if (antes + fs.length > 6) toast('Até 6 fotos por conclusão · entraram as ' + Math.max(0, 6 - antes) + ' primeiras.');
         renderFotosMini(cartao);
       });
     } else if (acao === 'resolver-enviar') {
       var sol = $('[data-campo="mini-texto"]', cartao).value.trim();
-      if (!sol) { toast('Diga o que foi feito.'); return; }
+      if (!sol) { desistir('Diga o que foi feito.'); return; }
       post('ponto/' + id, { status: 'RESOLVIDO', solucao: sol }).then(function () {
         return post('ponto/' + id + '/comentar', { texto: 'Concluída: ' + sol, tipo: 'STATUS' });
       }).then(function () { return subirFotosMini('DEPOIS'); })
-        .then(function () { toast('Ação concluída ✓'); depois(); }).catch(falha);
+        .then(function (r) { toast('Ação concluída ✓' + (r && r.ignoradas ? ' · ' + r.ignoradas + ' foto(s) não aceita(s)' : '')); depois(); }).catch(falha);
     } else if (acao === 'informou-enviar') {
       var inf = $('[data-campo="mini-texto"]', cartao).value.trim();
       post('ponto/' + id + '/comentar', { status: 'AGUARDANDO_VERIFICACAO', texto: inf || 'Responsável informou que fez', tipo: 'RETORNO' })
         .then(function () { return subirFotosMini('DEPOIS'); })
-        .then(function () { toast('Anotado · entra em "a conferir" na próxima visita.'); depois(); }).catch(falha);
+        .then(function (r) { toast('Anotado · entra em "a conferir" na próxima visita.' + (r && r.ignoradas ? ' ' + r.ignoradas + ' foto(s) não aceita(s).' : '')); depois(); }).catch(falha);
     } else if (acao === 'confirmar' || acao === 'nao-feito') {
       post('ponto/' + id + '/verificar', { resultado: acao === 'confirmar' ? 'CONFIRMADO' : 'NAO_FEITO' })
         .then(function () { toast(acao === 'confirmar' ? 'Conferida e concluída ✓' : 'Reaberta: não estava feito.'); depois(); }).catch(falha);
@@ -1584,7 +1688,7 @@
         if (!fs.length) return;
         toast('Enviando foto(s)…');
         return enviarFotos('ponto/' + id + '/foto', fs, { momento: momento })
-          .then(function (r) { toast(r.gravadas + ' foto(s) do ' + momento.toLowerCase() + ' guardada(s).'); depois(); });
+          .then(function (r) { toast(resumoFotos(r).replace('guardada(s)', 'do ' + momento.toLowerCase() + ' guardada(s)')); depois(); });
       }).catch(falha);
     } else if (acao === 'cobrei') {
       // no card compacto (planejamento) não há campo de texto nem de adiar: usa a cadência da prioridade
@@ -1594,12 +1698,12 @@
       post('ponto/' + id + '/comentar', { tipo: 'COBRANCA', texto: txtC || 'Cobrança feita', adiar: adiar || null })
         .then(function () { toast('Cobrança registrada' + (adiar ? ' · próxima em ' + adiar + ' dias.' : '.')); depois(); }).catch(falha);
     } else if (acao === 'excluir-ponto') {
-      if (!confirm('Excluir esta ação, seu histórico e suas fotos?')) return;
+      if (!confirm('Excluir esta ação, seu histórico e suas fotos?')) { desistir(); return; }
       post('ponto/' + id + '/excluir', {}).then(depois).catch(falha);
     } else if (acao === 'retorno-enviar') {
       var txt = $('[data-campo="retorno"]', cartao).value.trim();
       var st = $('[data-campo="status-novo"]', cartao).value;
-      if (!txt && !st) { toast('Escreva o retorno ou escolha o novo status.'); return; }
+      if (!txt && !st) { desistir('Escreva o retorno ou escolha o novo status.'); return; }
       post('ponto/' + id + '/comentar', { texto: txt || null, status: st || null, tipo: 'RETORNO' })
         .then(function () { toast('Retorno registrado.'); depois(); }).catch(falha);
     } else if (acao === 'historico') {
@@ -1670,7 +1774,9 @@
     var metas = d.metas || [];
     var periodo = metas.length ? metas[0].periodo : null;
     var doPeriodo = metas.filter(function (m) { return m.periodo === periodo; });
-    if (!doPeriodo.length) {
+    if (!App.contexto.veTudo) {
+      h += '<div class="vazio">Metas disponíveis para Moderador e Master.</div>';
+    } else if (!doPeriodo.length) {
       h += '<div class="vazio">Sem metas importadas' +
         (App.contexto.master ? ' — use o import "Metas" na tela Admin.' : '.') + '</div>';
     } else {
@@ -1784,7 +1890,7 @@
       if (!semana.length) h += '<div class="vazio">Nada planejado para os próximos 7 dias.</div>';
       semana.forEach(function (v) {
         h += '<button class="item-agencia" type="button" data-prefixo="' + esc(v.prefixo) + '">' +
-          '<span class="selo-visita"></span><span><span class="nome">' + esc(v.nome) + '</span><small>' +
+          '<span class="selo-visita planejada" title="visita planejada"></span><span><span class="nome">' + esc(v.nome) + '</span><small>' +
           esc(v.municipio || '') + '/' + esc(v.uf || '') + (v.pontosAbertos ? ' · ⚑ ' + v.pontosAbertos + ' ação(ões) aberta(s)' : '') + '</small></span>' +
           '<span class="numeros">' + (v.atrasada ? '<span class="badge vinho">atrasada</span><br>' : '') + fmtData(v.dataPlanejada) + '</span></button>';
       });
@@ -1822,8 +1928,8 @@
         '<p class="rotulo" style="margin:-4px 0 8px">sem visita há mais de 120 dias</p><div class="fila">';
       if (!p.frias.length) h += '<div class="vazio">Nenhuma agência esfriou. ✓</div>';
       p.frias.forEach(function (a) {
-        h += '<button class="item-agencia" type="button" data-prefixo="' + esc(a.prefixo) + '">' +
-          '<span class="selo-visita"></span><span><span class="nome">' + esc(a.nome) + '</span><small>' +
+        h += '<button class="item-agencia visitada" type="button" data-prefixo="' + esc(a.prefixo) + '">' +
+          '<span class="selo-visita" title="visitada, mas há muito tempo"></span><span><span class="nome">' + esc(a.nome) + '</span><small>' +
           esc(a.municipio || '') + '/' + esc(a.uf || '') + '</small></span>' +
           '<span class="numeros">' + a.dias + ' dias<br><small>' + fmtData(a.ultimaVisita) + '</small></span></button>';
       });
@@ -1906,8 +2012,11 @@
 
   var filtroAcoes = { chave: 'PENDENTES', prioridade: '', regional: '', texto: '' };
 
+  var seqAcoes = 0; // filtro lento não pode sobrescrever o filtro rápido pedido depois
+
   function carregarAcoes() {
     var alvo = $('#grade-acoes');
+    var meu = ++seqAcoes;
     alvo.innerHTML = '<div class="carregando">Carregando…</div>';
     var q = [], ch = filtroAcoes.chave;
     if (ch === 'PENDENTES' || ch === 'RESOLVIDO') q.push('status=' + ch);
@@ -1917,6 +2026,7 @@
     if (filtroAcoes.prioridade) q.push('prioridade=' + filtroAcoes.prioridade);
     if (filtroAcoes.regional) q.push('regional=' + encodeURIComponent(filtroAcoes.regional));
     api('acoes' + (q.length ? '?' + q.join('&') : '')).then(function (lista) {
+      if (meu !== seqAcoes) return;
       var t = filtroAcoes.texto.toLowerCase();
       if (t) lista = lista.filter(function (a) {
         return ((a.descricao || '') + ' ' + (a.agencia || '') + ' ' + (a.responsavel || '') + ' ' + (a.solucao || '')).toLowerCase().indexOf(t) >= 0;
@@ -1945,7 +2055,7 @@
       $$('[data-prefixo]', alvo).forEach(function (b) {
         b.addEventListener('click', function () { abrirAgencia(b.getAttribute('data-prefixo')); });
       });
-    }).catch(function (e) { alvo.innerHTML = '<div class="aviso">' + esc(e.message) + '</div>'; });
+    }).catch(function (e) { if (meu === seqAcoes) alvo.innerHTML = '<div class="aviso">' + esc(e.message) + '</div>'; });
   }
 
   function ligarAcoes() {
@@ -2005,7 +2115,7 @@
     input.addEventListener('input', render);
     input.addEventListener('focus', render);
     input.addEventListener('keydown', function (ev) {
-      if (ev.key === 'Escape') { fechar(); input.blur(); }
+      if (ev.key === 'Escape') { ev.stopPropagation(); fechar(); input.blur(); }
       if (ev.key === 'Enter') { var p = $('[data-prefixo]', res); if (p) p.click(); }
     });
     document.addEventListener('click', function (ev) { if (!ev.target.closest('.busca-topo')) fechar(); });
@@ -2047,6 +2157,16 @@
     filtroAcoes.chave = 'COBRAR';
     $$('#acoes-status button').forEach(function (x) { x.classList.toggle('ativo', x.getAttribute('data-v') === 'COBRAR'); });
     if ((location.hash || '#mapa') === '#acoes') carregarAcoes(); else location.hash = '#acoes';
+  }
+
+  /** Faixa fixa no topo do mapa (ex.: modo somente leitura). */
+  function mostrarFaixa(html) {
+    var vista = $('#vista-mapa');
+    if (!vista) return;
+    var el = document.createElement('div');
+    el.className = 'aviso-dia faixa-aviso';
+    el.innerHTML = '<span class="pulso"></span><div class="itens"><span>' + html + '</span></div>';
+    vista.insertBefore(el, vista.firstChild);
   }
 
   /** Aviso do dia na abertura (só Master): o que pede sua ação hoje. Fecha por hoje. */
@@ -2101,10 +2221,16 @@
       App.geo = r[2];
       App.proj = criarProjecao(App.geo);
       document.documentElement.classList.toggle('master', !!App.contexto.master);
+      document.documentElement.classList.toggle('somente-leitura', !!App.contexto.somenteLeitura);
       desenharMapa();
       carregarPainel({});
       ligarBusca();
       if (App.contexto.master) { ligarAcoes(); atualizarContadorAcoes(); mostrarAvisoDoDia(); }
+      if (App.contexto.somenteLeitura) mostrarFaixa('Sua matrícula está em modo <b>somente leitura</b>: você vê tudo, mas nada é gravado.');
+      if (/aviso=admin/.test(location.search)) {
+        toast('A tela Admin é exclusiva dos Masters.');
+        history.replaceState(null, '', location.pathname + location.hash);
+      }
       trocarVista();
       atualizarSubtitulo((App.contexto.regionalJurisdicao || 'Super Nacional Estilo') + ' · ' +
         App.mapa.agencias.length + ' agência(s)' + (App.contexto.master ? '' : ' · visão ' + App.contexto.perfil.toLowerCase()));
@@ -2143,9 +2269,16 @@
     $('#veu').addEventListener('click', function () { fecharDash(); fecharAgencia(); });
     document.addEventListener('keydown', function (ev) {
       if (ev.key !== 'Escape') return;
+      // Esc dentro de um campo do drawer só tira o foco (não fecha o checklist em preenchimento)
+      var ae = document.activeElement;
+      if (ae && /INPUT|TEXTAREA|SELECT/.test(ae.tagName) && ae.closest('#drawer-agencia')) { ae.blur(); return; }
       if ($('#painel-dash').classList.contains('aberto')) fecharDash();
       else if ($('#drawer-agencia').classList.contains('aberto')) fecharAgencia();
       else if (App.sel.uf) voltarBrasil();
+    });
+    // quem fechou a página com checklist pela metade merece o aviso do navegador
+    window.addEventListener('beforeunload', function (ev) {
+      if (formVisita.sujo && $('#fv-form')) { ev.preventDefault(); ev.returnValue = ''; }
     });
     window.addEventListener('hashchange', trocarVista);
   }

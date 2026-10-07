@@ -35,15 +35,54 @@ responde 403 para foto restrita. O front-end apenas esconde o que já não vem
 ## Build
 
 ```
-./build.sh        # produção -> dist/atlasestilo.war
+./build.sh        # produção -> dist/atlasestilo.war (com SSO) ou dist/atlasestilo-sem-sso.war
 ./build.sh dev    # teste local SEM SSO (usuário simulado Master) -> dist/atlasestilo-dev.war
 ```
 
-Compila com `--release 8`, roda o SelfTest (164 verificações, sem rede —
-inclui o que cada perfil pode ou não ver) e empacota. O WAR leva o driver
-SQLite em `WEB-INF/lib`. No WAR **dev**, `?perfil=COLEGA`, `?perfil=MODERADOR`
-ou `?perfil=MASTER` na URL troca o usuário simulado (fica na sessão) para
+Compila com `--release 8`, roda o SelfTest (181 verificações, sem rede —
+inclui o que cada perfil pode ou não ver, prazos por dia-calendário,
+cadência, conferência, migrações) e empacota. O WAR leva o driver SQLite em
+`WEB-INF/lib`. No WAR **dev**, `?perfil=COLEGA`, `?perfil=MODERADOR` ou
+`?perfil=MASTER` na URL troca o usuário simulado (fica na sessão) para
 conferir a visão de cada um.
+
+### WAR de produção com o SSO do BB
+
+O login é o `FilterOauth2` do BB (primeiro filtro do `web.xml`), que põe o
+`Usuario` na sessão; o `AuthFilter` lê esse objeto por reflexão e monta o
+perfil. Os quatro artefatos do SSO são **binários do BB e um segredo**, e por
+isso **não ficam no repositório** (ver `terceiros/sso/LEIAME.txt`):
+
+```
+terceiros/sso/br/com/bb/sso/filter/FilterOauth2.class
+terceiros/sso/br/com/bb/sso/bean/Usuario.class
+terceiros/sso/json-20230618.jar
+terceiros/sso/oauth.properties          (modelo: oauth.properties.exemplo)
+```
+
+Dois caminhos para ter o WAR completo:
+
+1. **Na máquina de build**: copie os quatro arquivos de uma ferramenta já
+   implantada (`<Tomcat>\webapps\boaspraticas\WEB-INF\classes\br\com\bb\sso\…`,
+   `…\WEB-INF\lib\json-20230618.jar`, `…\WEB-INF\classes\oauth.properties`,
+   trocando o `redirect_uri` para `https://super-pf1.intranet.bb.com.br/atlasestilo`)
+   para `terceiros/sso/` e rode `./build.sh`. O build confere o conteúdo do
+   WAR e só então o chama `dist/atlasestilo.war`.
+2. **No próprio servidor, sem JDK**: pegue `dist/atlasestilo-sem-sso.war` e rode
+   `terceiros\sso\injetar-sso.bat` (PowerShell + .NET). Ele acha o
+   `boaspraticas` em `webapps\`, copia os quatro artefatos para dentro do WAR
+   (ajustando o `redirect_uri`) e grava `atlasestilo.war` ao lado, pronto para
+   `webapps\`. Em Linux/macOS: `terceiros/sso/injetar-sso.sh`.
+
+O `atlasestilo-sem-sso.war` **não sobe** no Tomcat (o filtro declarado não
+existe) — é só a matéria-prima do passo 2. Ao atualizar o WAR em produção,
+basta repetir o passo 2 com o novo `-sem-sso.war`.
+
+> O `client_secret` do client SUPERPF1 esteve versionado neste repositório
+> (público) em commits anteriores, dentro de `oauth.properties` e dos WARs.
+> Ele saiu do código, mas continua no histórico do git: peça à equipe do
+> SSO/BB a **rotação do segredo** e use o novo valor no `oauth.properties`
+> das ferramentas.
 
 Esquema do banco: `WEB-INF/sql/schema.sql` roda a cada subida
 (`CREATE TABLE IF NOT EXISTS`) e `db/Migracoes.java` acrescenta as colunas
@@ -52,15 +91,15 @@ exige mexer no banco.
 
 ### Antes do deploy de produção (uma vez)
 
-1. **Copiar os binários do SSO do BB** (de uma ferramenta existente, ex.
-   boaspraticas) para `terceiros/sso/`:
-   - `br/com/bb/sso/filter/FilterOauth2.class`
-   - `br/com/bb/sso/bean/Usuario.class`
-   - `json-20230618.jar`
-   O build inclui tudo automaticamente quando presente (e avisa quando falta).
+1. **Ter o WAR com SSO** (seção acima: `terceiros/sso/` + `./build.sh`, ou
+   `injetar-sso.bat` no servidor).
 2. **Registrar o redirect_uri** `https://super-pf1.intranet.bb.com.br/atlasestilo`
    para o client_id `SUPERPF1` no servidor OAuth2 do BB (idêntico, sem barra
    final) — senão o login devolve `redirect_uri_mismatch`.
+3. `atlas.maps.ativo` já vem `false` no `web.xml` (a intranet não alcança o
+   Google); a fachada usa foto do Admin ou o link de embed colado pelo Master.
+   Erros inesperados caem em `erro.jsp` (JSON para `/api/*`), nunca na página
+   do Tomcat.
 
 ## Deploy (Tomcat 8.5 · Windows)
 
@@ -77,6 +116,9 @@ exige mexer no banco.
 
 Na primeira subida com banco vazio a ferramenta **semeia dados de exemplo**
 (26 agências fictícias em 14 UFs) para a experiência ser navegável de cara.
+Depois que o Master usa "limpar exemplo" no Admin, o boot não semeia de novo
+(marca `exemplo.limpo` em `config_parametro`); "recarregar exemplo" continua
+disponível.
 Na tela **Admin** o Master:
 
 - importa as planilhas reais (CSV/XLSX, com modelo para baixar, prévia e
@@ -191,7 +233,19 @@ Rotas da API usadas por esses fluxos (todas exigem Master): `GET /api/hoje`,
 `POST /api/ponto/{id}/comentar` (`texto`, `status`, `tipo=RETORNO|COBRANCA|STATUS`,
 `adiar` em dias), `POST /api/ponto/{id}/foto?momento=ANTES|DEPOIS` (multipart),
 `POST /api/ponto/{id}/verificar` (`resultado=CONFIRMADO|NAO_FEITO`, `visitaId`),
-`GET/POST /api/admin/cadencia`.
+`GET/POST /api/admin/cadencia`, `GET /api/export/visitas|acoes?prefixo=` (opcional,
+só uma agência).
+
+Regras de prazo e prova: **prazos contam por dia-calendário** (fuso de
+Brasília): uma ação com prazo hoje ainda não venceu, e "vence em 7 dias" vai
+de hoje até o sétimo dia. **Reabrir** uma ação apaga a prova antiga
+(conferência e data de conclusão); "sem prova" é concluída sem conferência in
+loco e sem foto do depois, a mesma regra do KPI. Conferir só vale para ação
+que está aguardando conferência (um duplo clique não duplica). Fotos: só JPG,
+PNG, WEBP e GIF; o que não for aceito é informado (nunca some em silêncio); até
+8 MB por arquivo e 40 MB por envio, reduzidas no navegador antes de subir.
+Matrícula em **somente leitura** vê tudo, mas os controles de gravação ficam
+ocultos e a API recusa qualquer escrita.
 
 ### Front-end
 

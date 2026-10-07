@@ -27,20 +27,25 @@ mkdir -p build/war/WEB-INF/classes build/war/WEB-INF/lib
 cp -r build/classes/. build/war/WEB-INF/classes/
 cp lib/sqlite-jdbc-3.36.0.3.jar build/war/WEB-INF/lib/
 
-# artefatos do SSO do BB (binários copiados de uma ferramenta existente)
+# artefatos do SSO do BB (binários do BB, copiados de uma ferramenta já implantada,
+# ex. boaspraticas; nunca entram no git). Com os quatro presentes o WAR sai
+# completo; sem eles sai como atlasestilo-sem-sso.war, para completar no
+# servidor com terceiros/sso/injetar-sso.bat.
 SSO_OK=1
 for a in terceiros/sso/br/com/bb/sso/filter/FilterOauth2.class \
-         terceiros/sso/br/com/bb/sso/bean/Usuario.class; do
+         terceiros/sso/br/com/bb/sso/bean/Usuario.class \
+         terceiros/sso/oauth.properties; do
   [ -f "$a" ] || SSO_OK=0
 done
+JSON_JAR="$(ls terceiros/sso/json-*.jar 2>/dev/null | head -1 || true)"
+[ -n "$JSON_JAR" ] || SSO_OK=0
 if [ "$SSO_OK" = "1" ]; then
   mkdir -p build/war/WEB-INF/classes/br/com/bb/sso
   cp -r terceiros/sso/br/com/bb/sso/. build/war/WEB-INF/classes/br/com/bb/sso/
-  [ -f terceiros/sso/json-20230618.jar ] && cp terceiros/sso/json-20230618.jar build/war/WEB-INF/lib/
-else
-  echo "AVISO: classes do SSO do BB ausentes em terceiros/sso/ — o WAR de"
-  echo "       producao NAO vai logar. Copie FilterOauth2.class, Usuario.class"
-  echo "       e json-20230618.jar de uma ferramenta existente (boaspraticas)."
+  cp "$JSON_JAR" build/war/WEB-INF/lib/
+  cp terceiros/sso/oauth.properties build/war/WEB-INF/classes/oauth.properties
+  grep -q "^redirect_uri=https://super-pf1.intranet.bb.com.br/atlasestilo$" terceiros/sso/oauth.properties \
+    || echo "AVISO: redirect_uri do oauth.properties não é https://super-pf1.intranet.bb.com.br/atlasestilo"
 fi
 
 if [ "$MODO" = "dev" ]; then
@@ -63,8 +68,23 @@ EOF
   (cd build/war && jar cf ../../dist/atlasestilo-dev.war .)
   echo "OK: dist/atlasestilo-dev.war (DEV — sem SSO, usuário simulado)"
 else
-  (cd build/war && jar cf ../../dist/atlasestilo.war .)
   # cópia de referência do schema
   cp WebContent/WEB-INF/sql/schema.sql sql/schema.sql
-  echo "OK: dist/atlasestilo.war"
+  if [ "$SSO_OK" = "1" ]; then
+    rm -f dist/atlasestilo-sem-sso.war
+    (cd build/war && jar cf ../../dist/atlasestilo.war .)
+    for e in WEB-INF/classes/br/com/bb/sso/filter/FilterOauth2.class WEB-INF/classes/oauth.properties; do
+      jar tf dist/atlasestilo.war | grep -q "^$e$" || { echo "ERRO: WAR sem $e"; exit 1; }
+    done
+    jar tf dist/atlasestilo.war | grep -q "^WEB-INF/lib/json-.*\.jar$" || { echo "ERRO: WAR sem o json-*.jar do SSO"; exit 1; }
+    echo "OK: dist/atlasestilo.war (produção, com SSO do BB)"
+  else
+    rm -f dist/atlasestilo.war
+    (cd build/war && jar cf ../../dist/atlasestilo-sem-sso.war .)
+    echo "OK: dist/atlasestilo-sem-sso.war"
+    echo "    Este WAR ainda NÃO loga: faltam os binários do SSO do BB (FilterOauth2.class,"
+    echo "    Usuario.class, json-*.jar) e o oauth.properties com o client_secret."
+    echo "    No servidor: terceiros\\sso\\injetar-sso.bat  -> copia tudo do boaspraticas já implantado"
+    echo "    e gera atlasestilo.war pronto. Ou copie os 4 arquivos para terceiros/sso/ e rode ./build.sh."
+  fi
 fi

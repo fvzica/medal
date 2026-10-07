@@ -42,7 +42,10 @@
        false: a fachada passa a usar a foto do admin. -->
   <context-param>
     <param-name>atlas.maps.ativo</param-name>
-    <param-value>true</param-value>
+    <!-- false na intranet: a estação normalmente não alcança maps.google.com e o
+         iframe ficaria cinza. A fachada usa foto do admin ou o link de embed
+         colado pelo Master. Troque para true se a rede liberar o Google. -->
+    <param-value>false</param-value>
   </context-param>
 
   <!-- DEV-SIMULAR-INICIO: em produção fica false. O build dev troca para true
@@ -102,6 +105,20 @@
     <servlet-name>FotoServlet</servlet-name>
     <url-pattern>/foto/*</url-pattern>
   </servlet-mapping>
+
+  <!-- erro inesperado nunca mostra a página do Tomcat (stack trace, versão) -->
+  <error-page>
+    <error-code>500</error-code>
+    <location>/erro.jsp</location>
+  </error-page>
+  <error-page>
+    <error-code>404</error-code>
+    <location>/erro.jsp</location>
+  </error-page>
+  <error-page>
+    <exception-type>java.lang.Throwable</exception-type>
+    <location>/erro.jsp</location>
+  </error-page>
 
   <welcome-file-list>
     <welcome-file>index.jsp</welcome-file>

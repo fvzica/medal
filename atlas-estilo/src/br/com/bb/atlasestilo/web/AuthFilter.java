@@ -37,8 +37,12 @@ public class AuthFilter implements Filter {
 
     public static void invalidarPerfis() { geracaoPerfis++; }
 
-    /** Normaliza "." e ".." do caminho; null quando tenta sair da raiz. */
+    /**
+     * Normaliza "." e ".." do caminho; null quando tenta sair da raiz ou usa
+     * truques de segmento (";param", "%2e") que o container trataria diferente.
+     */
     public static String normalizar(String caminho) {
+        if (caminho.indexOf(';') >= 0 || caminho.indexOf('%') >= 0) return null;
         if (caminho.indexOf("/.") < 0 && caminho.indexOf("//") < 0) return caminho;
         java.util.ArrayDeque<String> partes = new java.util.ArrayDeque<>();
         for (String p : caminho.split("/")) {
@@ -62,19 +66,22 @@ public class AuthFilter implements Filter {
         HttpServletRequest req = (HttpServletRequest) sreq;
         HttpServletResponse resp = (HttpServletResponse) sresp;
         if (req.getCharacterEncoding() == null) req.setCharacterEncoding("UTF-8");
-        String caminho = req.getRequestURI().substring(req.getContextPath().length());
-        // getRequestURI vem sem normalizar: "/css/../api/x" não pode passar
-        // pela isenção dos estáticos — normaliza e recusa qualquer ".."
-        caminho = normalizar(caminho);
-        if (caminho == null) {
+        // Usa o caminho que o container já decodificou, limpou de ";param" e
+        // normalizou para mapear o servlet — é esse que decide quem atende.
+        // A URI crua só serve de defesa extra contra ".." que escape da raiz.
+        String caminho = req.getServletPath() + (req.getPathInfo() == null ? "" : req.getPathInfo());
+        if (normalizar(req.getRequestURI().substring(req.getContextPath().length())) == null
+                || caminho.indexOf(';') >= 0 || caminho.indexOf('%') >= 0) {
             Http.erro(resp, 400, "Caminho inválido.");
             return;
         }
 
-        // página de acesso negado é standalone (o usuário pode nem existir);
-        // estáticos não carregam dados — não precisam de perfil
-        if (caminho.equals("/negado.jsp")
+        // página de acesso negado e de erro são standalone (o usuário pode nem
+        // existir); estáticos não carregam dados — não precisam de perfil
+        if (caminho.equals("/negado.jsp") || caminho.equals("/erro.jsp")
                 || caminho.startsWith("/css/") || caminho.startsWith("/js/")) {
+            // estáticos sempre revalidam: depois de um deploy ninguém fica com o JS antigo
+            if (!caminho.endsWith(".jsp")) resp.setHeader("Cache-Control", "no-cache");
             chain.doFilter(sreq, sresp);
             return;
         }

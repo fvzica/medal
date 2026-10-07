@@ -141,6 +141,43 @@
     return (n / 1048576).toFixed(1) + ' MB';
   }
 
+  var LIMITE_FOTO = 8 * 1024 * 1024, LIMITE_ENVIO = 40 * 1024 * 1024; // iguais ao multipart-config do web.xml
+
+  /** Reduz a foto no navegador (lado maior 1600 px, JPEG 0,82); se não der, manda o original. */
+  function reduzirImagem(file, maxLado) {
+    maxLado = maxLado || 1600;
+    return new Promise(function (resolve) {
+      if (!file || !/^image\//.test(file.type) || /gif|svg/.test(file.type) || !window.HTMLCanvasElement) { resolve(file); return; }
+      var url = URL.createObjectURL(file), img = new Image();
+      var original = function () { URL.revokeObjectURL(url); resolve(file); };
+      img.onload = function () {
+        try {
+          var w = img.naturalWidth, h = img.naturalHeight, k = Math.min(1, maxLado / Math.max(w, h));
+          if (k >= 1 && file.size < 900 * 1024) { original(); return; }
+          var cv = document.createElement('canvas');
+          cv.width = Math.max(1, Math.round(w * k)); cv.height = Math.max(1, Math.round(h * k));
+          cv.getContext('2d').drawImage(img, 0, 0, cv.width, cv.height);
+          cv.toBlob(function (blob) { URL.revokeObjectURL(url); resolve(blob && blob.size < file.size ? blob : file); }, 'image/jpeg', 0.82);
+        } catch (e) { original(); }
+      };
+      img.onerror = original;
+      img.src = url;
+    });
+  }
+
+  /** Mensagem de erro padrão das seções que carregam sozinhas (em vez de ficarem em branco). */
+  function falhaSecao(seletor, colunas) {
+    return function (e) {
+      var alvo = $(seletor);
+      if (alvo) {
+        alvo.innerHTML = colunas
+          ? '<tr><td colspan="' + colunas + '"><div class="aviso">' + esc(e.message) + '</div></td></tr>'
+          : '<div class="aviso">' + esc(e.message) + '</div>';
+      }
+      toast(e.message);
+    };
+  }
+
   function carregarPasta() {
     return api('admin/pasta').then(renderPasta).catch(function (e) {
       $('#pasta-situacao').textContent = e.message;
@@ -270,7 +307,7 @@
         });
       });
       preencherFontesVisao();
-    });
+    }).catch(falhaSecao('#corpo-fontes', 6));
   }
 
   function rodarFonte(id, acao) {
@@ -503,7 +540,7 @@
             .catch(function (e) { toast(e.message); });
         });
       });
-    });
+    }).catch(falhaSecao('#corpo-visoes', 8));
   }
 
   function editarVisao(v) {
@@ -588,16 +625,28 @@
       var prefixo = $('#foto-prefixo').value;
       if (!prefixo) { toast('Escolha a agência.'); return; }
       if (!input.files.length) { toast('Escolha ao menos uma foto.'); return; }
-      var fd = new FormData();
-      fd.append('prefixo', prefixo);
-      fd.append('tipo', $('#foto-tipo').value);
-      fd.append('legenda', $('#foto-legenda').value);
-      fd.append('matricula', $('#foto-matricula').value);
-      [].forEach.call(input.files, function (f) { fd.append('arquivo', f); });
-      $('#foto-status').textContent = 'enviando…';
-      api('admin/foto', { method: 'POST', body: fd }).then(function (r) {
-        $('#foto-status').textContent = r.gravadas + ' foto(s) gravada(s) ✓';
-        toast('Fotos enviadas.');
+      var arquivos = [].slice.call(input.files);
+      $('#foto-status').textContent = 'preparando ' + arquivos.length + ' foto(s)…';
+      // reduz no navegador (as fotos de celular passam de 8 MB; a fachada é baixada por todo mundo)
+      Promise.all(arquivos.map(function (f) { return reduzirImagem(f); })).then(function (blobs) {
+        var total = 0, grande = null;
+        blobs.forEach(function (b) { total += b.size; if (b.size > LIMITE_FOTO) grande = b; });
+        if (grande) throw new Error('Uma das fotos continua acima de 8 MB mesmo reduzida — escolha outra.');
+        if (total > LIMITE_ENVIO) throw new Error('As fotos somam mais de 40 MB — envie em mais de uma vez.');
+        var fd = new FormData();
+        fd.append('prefixo', prefixo);
+        fd.append('tipo', $('#foto-tipo').value);
+        fd.append('legenda', $('#foto-legenda').value);
+        fd.append('matricula', $('#foto-matricula').value);
+        blobs.forEach(function (b, i) {
+          fd.append('arquivo', b, (arquivos[i].name || 'foto').replace(/\.\w+$/, '') + (b.type === 'image/jpeg' ? '.jpg' : ''));
+        });
+        $('#foto-status').textContent = 'enviando…';
+        return api('admin/foto', { method: 'POST', body: fd });
+      }).then(function (r) {
+        $('#foto-status').textContent = r.gravadas + ' foto(s) gravada(s) ✓' +
+          (r.ignoradas ? ' · ' + r.ignoradas + ' não aceita(s) (use JPG, PNG, WEBP ou GIF)' : '');
+        toast(r.ignoradas ? 'Enviadas, mas ' + r.ignoradas + ' não aceita(s).' : 'Fotos enviadas.');
         input.value = '';
         zona.textContent = 'arraste as fotos aqui ou clique para escolher';
       }).catch(function (e) {
@@ -625,7 +674,7 @@
             .then(carregarMasters).catch(function (e) { toast(e.message); });
         });
       });
-    });
+    }).catch(falhaSecao('#lista-masters'));
   }
 
   function carregarFlags() {
@@ -642,7 +691,7 @@
             .then(carregarFlags).catch(function (e) { toast(e.message); });
         });
       });
-    });
+    }).catch(falhaSecao('#lista-flags'));
   }
 
   function carregarLog() {
@@ -653,7 +702,7 @@
           '<td>' + l.atualizados + '</td><td>' + l.ignorados + '</td>' +
           '<td>' + esc(l.criadoPor || '—') + '</td></tr>';
       }).join('') : '<tr><td colspan="7" class="vazio">Nenhum import ainda.</td></tr>';
-    });
+    }).catch(falhaSecao('#corpo-importlog', 7));
   }
 
   // ------------------------------------------------------------------- boot

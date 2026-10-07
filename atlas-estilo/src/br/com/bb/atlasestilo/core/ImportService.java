@@ -438,14 +438,19 @@ public final class ImportService {
             throws SQLException {
         switch (tipo) {
             case "agencias": {
+                // Só as colunas presentes no arquivo são atualizadas numa agência que já
+                // existe: um CSV com prefixo;nome não pode apagar o link do Maps colado
+                // pelo Master, a regional, o endereço ou as coordenadas dos pins.
+                StringBuilder set = new StringBuilder("nome=excluded.nome");
+                for (String col : new String[] { "uf", "municipio", "endereco", "cep", "lat", "lng",
+                                                 "regional", "super_regional", "gmaps_url" }) {
+                    if (r.containsKey(col)) set.append(", ").append(col).append("=excluded.").append(col);
+                }
+                set.append(", origem='IMPORT', atualizado_em=excluded.atualizado_em");
                 String sql = "INSERT INTO agencia (prefixo,nome,uf,municipio,endereco,cep," +
                     "lat,lng,regional,super_regional,gmaps_url,origem,atualizado_em) " +
                     "VALUES (?,?,?,?,?,?,?,?,?,?,?,'IMPORT',?) " +
-                    "ON CONFLICT(prefixo) DO UPDATE SET nome=excluded.nome, uf=excluded.uf, " +
-                    "municipio=excluded.municipio, endereco=excluded.endereco, cep=excluded.cep, " +
-                    "lat=excluded.lat, lng=excluded.lng, regional=excluded.regional, " +
-                    "super_regional=excluded.super_regional, gmaps_url=excluded.gmaps_url, " +
-                    "origem='IMPORT', atualizado_em=excluded.atualizado_em";
+                    "ON CONFLICT(prefixo) DO UPDATE SET " + set;
                 try (PreparedStatement ps = c.prepareStatement(sql)) {
                     ps.setString(1, r.get("prefixo"));
                     ps.setString(2, r.get("nome"));

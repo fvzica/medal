@@ -7,7 +7,8 @@
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230b1324'/%3E%3Ccircle cx='16' cy='16' r='7' fill='%23f5c518'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<%-- fontes externas sem bloquear a página: na intranet o Google pode não responder; o CSS tem fallback de sistema --%>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
 <link rel="stylesheet" href="css/atlas.css">
 </head>
 <body>
@@ -50,7 +51,7 @@
           <span class="lenda-item"><span class="bolinha papel"></span> estado com agência</span>
           <span class="lenda-item"><span class="bolinha ouro"></span> agência</span>
           <span class="lenda-item so-master"><span class="bolinha verde"></span> visitada</span>
-          <span class="lenda-item" id="lenda-dica">toque num estado para mergulhar</span>
+          <span class="lenda-item" id="lenda-dica">clique num estado para mergulhar</span>
         </div>
       </div>
       <aside id="painel-regiao"><div class="carregando">Carregando o atlas…</div></aside>
