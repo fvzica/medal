@@ -26,7 +26,7 @@ Carga inicial de masters: `F3548926`, `F3191837`, `F6323371`.
 ./build.sh dev    # teste local SEM SSO (usuário simulado Master) -> dist/atlasestilo-dev.war
 ```
 
-Compila com `--release 8`, roda o SelfTest (31 verificações, sem rede) e
+Compila com `--release 8`, roda o SelfTest (101 verificações, sem rede) e
 empacota. O WAR leva o driver SQLite em `WEB-INF/lib`.
 
 ### Antes do deploy de produção (uma vez)
@@ -66,6 +66,43 @@ Na tela **Admin** o Master:
   Master/Moderador);
 - administra masters, flags (`SOMENTE_LEITURA`/`BLOQUEADO`) e pode limpar ou
   recarregar o exemplo.
+
+### Fontes de dados em CSV na pasta do servidor
+
+Além do upload manual, o Master aponta na tela **Admin › Pasta de CSV** uma
+pasta do servidor (padrão `<Tomcat>\dados\atlasestilo\csv`, parâmetro
+`atlas.csv.dir`; o caminho salvo no Admin prevalece). Cada **fonte** liga um
+arquivo dessa pasta (nome exato ou padrão como `conexao_*.csv` — vale o mais
+recente) a um tipo de dado:
+
+| Tipo | O que alimenta |
+|---|---|
+| `agencias`, `funcis`, `carteiras`, `pdg`, `metas` | os mesmos imports tipados do upload |
+| `conexao` | Conexão por competência (`AAAA-MM`) da agência e de cada carteira/gerente; agência sem nota própria recebe a média das carteiras (origem `DERIVADO`) |
+| `indicadores` | qualquer CSV com `prefixo` (+ `competencia` opcional): toda coluna numérica vira um indicador disponível para as **visões** |
+
+**Visões do dashboard** (Admin › Visões): cada visão escolhe fonte, coluna,
+agregação (média/soma/mín/máx), formato (inteiro/decimal/%/R$), meta fixa ou
+coluna de meta, direção (maior/menor é melhor), faixa plausível e **perfil
+mínimo** (Colega/Moderador/Master). Elas viram cards no painel da região, na
+agência e no dashboard da porta, com farol (ok/atenção/crítico) e variação
+contra a competência anterior.
+
+**Saneamento automático** (`util/Saneador`): encoding (BOM, UTF-8, ANSI),
+delimitador (`;` `,` TAB `|`), preâmbulo e cabeçalhos repetidos, colunas
+vazias sobrando, números com vírgula/ponto trocados, milhar, `R$`, `%`,
+parênteses negativos, erros do Excel (`#N/D`), letras no lugar de dígitos
+(`O`→`0`, `l`/`I`→`1`), competências em vários formatos. Tudo que foi
+corrigido aparece no **relatório** da fonte (regra, linha, veio/ficou); as
+linhas rejeitadas podem ser baixadas em CSV para correção. O **modo estrito**
+impede qualquer gravação quando há linha rejeitada ou célula inválida.
+
+**Monitor**: a cada N minutos (Admin; 0 desliga; `atlas.csv.monitor=false`
+no web.xml desativa de vez) o servidor reimporta as fontes automáticas cujo
+arquivo mudou (data de modificação). "Importar agora o que mudou" roda a
+varredura na hora.
+
+Modelos CSV: `/api/admin/modelo/conexao` e `/api/admin/modelo/indicadores`.
 
 ### Fachada da agência (Google Maps)
 

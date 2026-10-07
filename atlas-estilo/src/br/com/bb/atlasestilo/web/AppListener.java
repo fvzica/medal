@@ -36,11 +36,17 @@ public class AppListener implements ServletContextListener {
 
         String dbPath   = resolver(ctx.getInitParameter("atlas.db.path"), base);
         String fotoDir  = resolver(ctx.getInitParameter("atlas.foto.dir"), base);
+        String csvDir   = resolver(ctx.getInitParameter("atlas.csv.dir"), base);
         if (dbPath == null)  dbPath  = new File(base, "dados/atlasestilo/atlas.db").getPath();
         if (fotoDir == null) fotoDir = new File(base, "dados/atlasestilo/fotos").getPath();
+        if (csvDir == null)  csvDir  = new File(base, "dados/atlasestilo/csv").getPath();
 
         criarPastaComEscrita(new File(dbPath).getParentFile());
         criarPastaComEscrita(new File(fotoDir));
+        // pasta padrão dos CSV (o Master pode apontar outra na tela Admin)
+        File csv = new File(csvDir);
+        if (!csv.exists() && !csv.mkdirs()) ctx.log("[atlasestilo] Não criei a pasta de CSV " + csvDir);
+        br.com.bb.atlasestilo.core.FonteService.definirPastaPadrao(csvDir);
 
         Db.iniciar(dbPath);
         executarSchema(ctx);
@@ -63,11 +69,18 @@ public class AppListener implements ServletContextListener {
         ctx.setAttribute(ATTR_DEV_SIMULAR,
                 "true".equalsIgnoreCase(String.valueOf(ctx.getInitParameter("atlas.dev.simular"))));
 
-        ctx.log("[atlasestilo] Iniciado. db=" + dbPath + " fotos=" + fotoDir);
+        // monitor da pasta de CSV (reimporta quando o arquivo muda)
+        if (!"false".equalsIgnoreCase(String.valueOf(ctx.getInitParameter("atlas.csv.monitor")))) {
+            br.com.bb.atlasestilo.core.MonitorCsv.iniciar();
+        }
+
+        ctx.log("[atlasestilo] Iniciado. db=" + dbPath + " fotos=" + fotoDir + " csv=" + csvDir);
     }
 
     @Override
-    public void contextDestroyed(ServletContextEvent ev) { /* nada a liberar */ }
+    public void contextDestroyed(ServletContextEvent ev) {
+        br.com.bb.atlasestilo.core.MonitorCsv.parar();
+    }
 
     // ------------------------------------------------------------------ apoio
 

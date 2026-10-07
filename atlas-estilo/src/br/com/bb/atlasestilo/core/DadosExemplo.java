@@ -73,6 +73,20 @@ public final class DadosExemplo {
         "Iluminação externa insuficiente no estacionamento",
     };
 
+    /** Últimas n competências (AAAA-MM), da mais antiga para a atual. */
+    static String[] competenciasRecentes(long agora, int n) {
+        java.util.Calendar c = java.util.Calendar.getInstance(java.util.TimeZone.getTimeZone("America/Sao_Paulo"));
+        c.setTimeInMillis(agora);
+        c.set(java.util.Calendar.DAY_OF_MONTH, 1);
+        String[] out = new String[n];
+        for (int i = n - 1; i >= 0; i--) {
+            int mes = c.get(java.util.Calendar.MONTH) + 1;
+            out[i] = c.get(java.util.Calendar.YEAR) + "-" + (mes < 10 ? "0" + mes : String.valueOf(mes));
+            c.add(java.util.Calendar.MONTH, -1);
+        }
+        return out;
+    }
+
     /** Semeia tudo. Chamado quando o banco está vazio (ou pelo Admin). */
     public static void semear() {
         long agora = System.currentTimeMillis();
@@ -108,6 +122,10 @@ public final class DadosExemplo {
                     "INSERT INTO ponto_melhoria (prefixo,descricao,status,solucao,previsao," +
                     "resolvido_em,criado_por,criado_em,atualizado_em) " +
                     "VALUES (?,?,?,?,?,?,'EXEMPLO',?,?)");
+                PreparedStatement kxIns = c.prepareStatement(
+                    "INSERT OR IGNORE INTO conexao (prefixo,competencia,carteira,gerente_matricula," +
+                    "gerente_nome,pontos,origem,atualizado_em) VALUES (?,?,?,?,?,?,'EXEMPLO',?)");
+                String[] competencias = competenciasRecentes(agora, 6);
 
                 int seqMatricula = 1;
                 int idx = 0;
@@ -134,10 +152,20 @@ public final class DadosExemplo {
                     String mGG = matricula(seqMatricula++);
                     inserirFunci(fuIns, mGG, nome(rnd), prefixo, "Gerente Geral",
                             "Gerência Geral Estilo", "GERENTE", null, rnd, agora, dia);
+                    // Conexão da agência: 6 meses com tendência própria
+                    double base = 560 + rnd.nextInt(380), passo = -25 + rnd.nextInt(51);
+                    for (int m = 0; m < competencias.length; m++) {
+                        double pts = Math.max(300, Math.min(990, base + passo * m + rnd.nextInt(40) - 20));
+                        kxIns.setString(1, prefixo); kxIns.setString(2, competencias[m]);
+                        kxIns.setString(3, ""); kxIns.setNull(4, java.sql.Types.VARCHAR);
+                        kxIns.setNull(5, java.sql.Types.VARCHAR); kxIns.setDouble(6, Math.round(pts));
+                        kxIns.setLong(7, agora); kxIns.executeUpdate();
+                    }
                     for (int i = 1; i <= qtdCarteiras; i++) {
                         String cod = String.format("EST-%02d", i);
                         String mG = matricula(seqMatricula++);
-                        inserirFunci(fuIns, mG, nome(rnd), prefixo,
+                        String nomeG = nome(rnd);
+                        inserirFunci(fuIns, mG, nomeG, prefixo,
                                 "Gerente de Relacionamento", "Gerente Estilo",
                                 "GERENTE", cod, rnd, agora, dia);
                         caIns.setString(1, prefixo);
@@ -147,6 +175,14 @@ public final class DadosExemplo {
                         caIns.setString(5, mG);
                         caIns.setInt(6, 180 + rnd.nextInt(260));
                         caIns.executeUpdate();
+                        // Conexão do gerente da carteira (2 últimos meses)
+                        double pg = Math.max(300, Math.min(995, base + rnd.nextInt(160) - 80));
+                        for (int m = Math.max(0, competencias.length - 2); m < competencias.length; m++) {
+                            kxIns.setString(1, prefixo); kxIns.setString(2, competencias[m]);
+                            kxIns.setString(3, cod); kxIns.setString(4, mG); kxIns.setString(5, nomeG);
+                            kxIns.setDouble(6, Math.round(pg + (m == competencias.length - 1 ? rnd.nextInt(60) - 30 : 0)));
+                            kxIns.setLong(7, agora); kxIns.executeUpdate();
+                        }
                     }
                     for (int i = 0; i < qtdAssist; i++) {
                         inserirFunci(fuIns, matricula(seqMatricula++), nome(rnd), prefixo,

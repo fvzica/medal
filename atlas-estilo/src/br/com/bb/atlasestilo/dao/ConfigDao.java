@@ -178,6 +178,7 @@ public final class ConfigDao {
             st.executeUpdate("DELETE FROM carteira WHERE origem = 'EXEMPLO'");
             st.executeUpdate("DELETE FROM pdg WHERE origem = 'EXEMPLO'");
             st.executeUpdate("DELETE FROM meta WHERE origem = 'EXEMPLO'");
+            st.executeUpdate("DELETE FROM conexao WHERE origem = 'EXEMPLO'");
             st.executeUpdate("DELETE FROM visita WHERE criado_por = 'EXEMPLO' OR prefixo IN " +
                              "(SELECT prefixo FROM agencia WHERE origem = 'EXEMPLO')");
             st.executeUpdate("DELETE FROM anotacao WHERE criado_por = 'EXEMPLO' OR prefixo IN " +

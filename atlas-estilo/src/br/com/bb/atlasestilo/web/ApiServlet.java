@@ -13,9 +13,12 @@ import javax.servlet.http.HttpServletResponse;
 import javax.servlet.http.Part;
 
 import br.com.bb.atlasestilo.core.DadosExemplo;
+import br.com.bb.atlasestilo.core.FonteService;
 import br.com.bb.atlasestilo.core.ImportService;
+import br.com.bb.atlasestilo.core.MonitorCsv;
 import br.com.bb.atlasestilo.dao.AgenciaDao;
 import br.com.bb.atlasestilo.dao.ConfigDao;
+import br.com.bb.atlasestilo.dao.FonteDao;
 import br.com.bb.atlasestilo.dao.FotoDao;
 import br.com.bb.atlasestilo.dao.GestaoDao;
 import br.com.bb.atlasestilo.dao.MetricaDao;
@@ -78,9 +81,14 @@ public class ApiServlet extends HttpServlet {
                             Http.erro(resp, 403, "Seu perfil vê apenas os grandes números.");
                             return;
                         }
-                        Http.json(resp, MetricaDao.lista(s, sel, tipo, agora));
+                        Http.json(resp, tipo.equals("conexao") ? FonteDao.conexaoLista(sel)
+                                                               : MetricaDao.lista(s, sel, tipo, agora));
                     } else {
-                        Http.json(resp, MetricaDao.resumo(s, sel, agora));
+                        // grandes números + Conexão + visões configuradas no admin
+                        String resumo = MetricaDao.resumo(s, sel, agora);
+                        Http.json(resp, resumo.substring(0, resumo.length() - 1) +
+                            ",\"conexao\":" + FonteDao.conexaoResumo(sel) +
+                            ",\"visoes\":" + FonteDao.visoesCalculadas(s, sel) + "}");
                     }
                     return;
                 }
@@ -97,6 +105,8 @@ public class ApiServlet extends HttpServlet {
                         .putRaw("agencia", cab)
                         .putRaw("resumo", MetricaDao.resumo(s, sel, agora))
                         .putRaw("pdgHistorico", ResultadoDao.pdgHistorico(prefixo))
+                        .putRaw("conexao", FonteDao.conexaoAgencia(prefixo, s.veTudo()))
+                        .putRaw("visoes", FonteDao.visoesCalculadas(s, sel))
                         .putRaw("fotos", FotoDao.listar(prefixo, s.veTudo()));
                     if (s.veTudo()) {
                         o.putRaw("equipe", MetricaDao.lista(s, sel, "funcis", agora))
@@ -138,7 +148,7 @@ public class ApiServlet extends HttpServlet {
         switch (sub) {
             case "modelo": {
                 String tipo = cam.length > 2 ? cam[2] : "";
-                String modelo = ImportService.modelo(tipo);
+                String modelo = FonteDao.tipoValido(tipo) ? FonteService.modelo(tipo) : null;
                 if (modelo == null) { Http.erro(resp, 404, "Tipo de modelo desconhecido."); return; }
                 Http.download(resp, "modelo-" + tipo + ".csv", modelo);
                 return;
@@ -146,6 +156,42 @@ public class ApiServlet extends HttpServlet {
             case "masters":   Http.json(resp, ConfigDao.masters()); return;
             case "flags":     Http.json(resp, ConfigDao.flags()); return;
             case "importlog": Http.json(resp, ConfigDao.importLogs()); return;
+            // ---- fontes de dados em CSV na pasta do servidor
+            case "pasta": {
+                String pasta = FonteService.varrerPasta();
+                Http.json(resp, pasta.substring(0, pasta.length() - 1) +
+                    ",\"monitor\":" + MonitorCsv.estado() + "}");
+                return;
+            }
+            case "fontes":    Http.json(resp, FonteDao.fontesJson()); return;
+            case "visoes":    Http.json(resp, FonteDao.visoesJson()); return;
+            case "monitor":   Http.json(resp, MonitorCsv.estado()); return;
+            case "campos": {
+                String tipo = cam.length > 2 ? cam[2] : "";
+                if (!FonteDao.tipoValido(tipo)) { Http.erro(resp, 404, "Tipo desconhecido."); return; }
+                Http.json(resp, FonteService.camposJson(tipo));
+                return;
+            }
+            case "fonte": {
+                if (cam.length < 4) { Http.erro(resp, 404, "Use /admin/fonte/{id}/relatorio|rejeitadas|colunas."); return; }
+                long id = Long.parseLong(cam[2]);
+                switch (cam[3]) {
+                    case "relatorio": {
+                        String r = FonteDao.fonteRelatorio(id);
+                        Http.json(resp, r == null ? "null" : r);
+                        return;
+                    }
+                    case "rejeitadas": {
+                        String csv = FonteDao.fonteRejeitadas(id);
+                        if (csv == null) { Http.erro(resp, 404, "Esta fonte não tem linhas rejeitadas na última leitura."); return; }
+                        Http.download(resp, "rejeitadas-fonte-" + id + ".csv", csv);
+                        return;
+                    }
+                    case "colunas": Http.json(resp, FonteDao.colunasDaFonte(id)); return;
+                    default: Http.erro(resp, 404, "Rota de fonte desconhecida.");
+                }
+                return;
+            }
             default: Http.erro(resp, 404, "Rota admin desconhecida.");
         }
     }
@@ -380,8 +426,128 @@ public class ApiServlet extends HttpServlet {
                 Http.json(resp, Json.obj().put("ok", true).fim());
                 return;
             }
+            // ---- fontes de dados em CSV na pasta do servidor
+            case "pasta": {
+                String pasta = Http.param(req, "pasta", null);
+                if (pasta != null) {
+                    java.io.File dir = new java.io.File(pasta);
+                    if (!dir.isAbsolute()) {
+                        Http.erro(resp, 400, "Informe o caminho completo da pasta no servidor (ex.: D:\\dados\\atlasestilo\\csv).");
+                        return;
+                    }
+                    FonteDao.paramDefinir(FonteDao.P_PASTA, dir.getPath(), s.matricula, agora);
+                }
+                String minutos = req.getParameter("minutos");
+                if (minutos != null) {
+                    int m = Http.paramInt(req, "minutos", 10);
+                    FonteDao.paramDefinir(FonteDao.P_MINUTOS, String.valueOf(Math.max(0, Math.min(1440, m))), s.matricula, agora);
+                }
+                String estrito = req.getParameter("estrito");
+                if (estrito != null) FonteDao.paramDefinir(FonteDao.P_ESTRITO, "1".equals(estrito) ? "1" : "0", s.matricula, agora);
+                String varredura = FonteService.varrerPasta();
+                Http.json(resp, varredura.substring(0, varredura.length() - 1) +
+                    ",\"monitor\":" + MonitorCsv.estado() + "}");
+                return;
+            }
+            case "fonte": postFonte(req, resp, s, cam, agora); return;
+            case "visao": postVisao(req, resp, s, cam, agora); return;
+            case "monitor": {
+                if (cam.length >= 3 && cam[2].equals("rodar")) {
+                    Http.json(resp, MonitorCsv.rodar(agora, true));
+                    return;
+                }
+                Http.erro(resp, 404, "Use /admin/monitor/rodar.");
+                return;
+            }
             default: Http.erro(resp, 404, "Rota admin desconhecida.");
         }
+    }
+
+    private void postFonte(HttpServletRequest req, HttpServletResponse resp, Sessao s,
+                           String[] cam, long agora) throws IOException, ServletException, SQLException {
+        // /admin/fonte/{id}/analisar | importar | upload | excluir
+        if (cam.length >= 4) {
+            long id = Long.parseLong(cam[2]);
+            FonteDao.Fonte f = FonteDao.fonte(id);
+            if (f == null) { Http.erro(resp, 404, "Fonte não encontrada."); return; }
+            switch (cam[3]) {
+                case "analisar": Http.json(resp, FonteService.analisarFonte(id, false, s.matricula, agora)); return;
+                case "importar": Http.json(resp, FonteService.analisarFonte(id, true, s.matricula, agora)); return;
+                case "upload": {
+                    Part parte = parteArquivo(req);
+                    if (parte == null) { Http.erro(resp, 400, "Envie o arquivo CSV ou XLSX."); return; }
+                    boolean confirmar = "1".equals(req.getParameter("confirmar"));
+                    byte[] dados;
+                    try (InputStream in = parte.getInputStream()) { dados = ImportService.lerTudo(in); }
+                    Http.json(resp, FonteService.processarFonte(f, nomeArquivo(parte), dados, null,
+                        confirmar, s.matricula, agora));
+                    return;
+                }
+                case "excluir": Http.json(resp, Json.obj().put("ok", FonteDao.fonteExcluir(id)).fim()); return;
+                default: Http.erro(resp, 404, "Ação de fonte desconhecida.");
+            }
+            return;
+        }
+        // criar / editar
+        FonteDao.Fonte f = new FonteDao.Fonte();
+        f.id = Http.paramLong(req, "id", 0);
+        f.nome = Texto.aparar(Http.param(req, "nome", ""), 120);
+        f.tipo = Http.param(req, "tipo", "");
+        f.arquivo = Texto.aparar(Http.param(req, "arquivo", ""), 200);
+        f.ativo = !"0".equals(req.getParameter("ativo"));
+        f.automatico = !"0".equals(req.getParameter("automatico"));
+        if (f.nome.isEmpty() || f.arquivo.isEmpty()) { Http.erro(resp, 400, "Nome e arquivo são obrigatórios."); return; }
+        if (!FonteDao.tipoValido(f.tipo)) { Http.erro(resp, 400, "Tipo de fonte inválido."); return; }
+        if (f.arquivo.indexOf('/') >= 0 || f.arquivo.indexOf('\\') >= 0 || f.arquivo.contains("..")) {
+            Http.erro(resp, 400, "Informe só o nome (ou padrão) do arquivo dentro da pasta, sem caminho.");
+            return;
+        }
+        String map = req.getParameter("mapeamento");
+        if (map != null) {
+            for (String par : map.split("[;\n]")) {
+                int i = par.indexOf('=');
+                if (i > 0) f.mapeamento.put(par.substring(0, i).trim().toLowerCase(), par.substring(i + 1).trim());
+            }
+        }
+        long id = FonteDao.fonteSalvar(f, s.matricula, agora);
+        Http.json(resp, FonteDao.fonte(id).json());
+    }
+
+    private void postVisao(HttpServletRequest req, HttpServletResponse resp, Sessao s,
+                           String[] cam, long agora) throws IOException, SQLException {
+        if (cam.length >= 4 && cam[3].equals("excluir")) {
+            Http.json(resp, Json.obj().put("ok", FonteDao.visaoExcluir(Long.parseLong(cam[2]))).fim());
+            return;
+        }
+        FonteDao.Visao v = new FonteDao.Visao();
+        v.id = Http.paramLong(req, "id", 0);
+        v.titulo = Texto.aparar(Http.param(req, "titulo", ""), 80);
+        v.fonteId = Http.paramLong(req, "fonteId", 0);
+        v.coluna = ImportService.chaveColuna(Http.param(req, "coluna", ""));
+        if (v.titulo.isEmpty() || v.fonteId <= 0 || v.coluna.isEmpty()) {
+            Http.erro(resp, 400, "Título, fonte e coluna são obrigatórios.");
+            return;
+        }
+        if (FonteDao.fonte(v.fonteId) == null) { Http.erro(resp, 400, "Fonte inexistente."); return; }
+        v.agregacao = escolha(Http.param(req, "agregacao", "MEDIA"), "MEDIA", "SOMA", "MIN", "MAX");
+        v.formato = escolha(Http.param(req, "formato", "INTEIRO"), "INTEIRO", "DECIMAL", "PERCENTUAL", "MOEDA");
+        v.casas = Math.max(0, Math.min(4, Http.paramInt(req, "casas", 0)));
+        v.meta = Texto.decimal(req.getParameter("meta"));
+        v.colunaMeta = Texto.vazio(req.getParameter("colunaMeta")) ? null
+                     : ImportService.chaveColuna(req.getParameter("colunaMeta"));
+        v.melhor = escolha(Http.param(req, "melhor", "MAIOR"), "MAIOR", "MENOR");
+        v.minimo = Texto.decimal(req.getParameter("minimo"));
+        v.maximo = Texto.decimal(req.getParameter("maximo"));
+        v.perfilMinimo = escolha(Http.param(req, "perfilMinimo", "COLEGA"), "COLEGA", "MODERADOR", "MASTER");
+        v.ordem = Http.paramInt(req, "ordem", 0);
+        v.ativo = !"0".equals(req.getParameter("ativo"));
+        FonteDao.visaoSalvar(v, s.matricula, agora);
+        Http.json(resp, Json.obj().put("ok", true).fim());
+    }
+
+    private static String escolha(String v, String... opcoes) {
+        for (String o : opcoes) if (o.equals(v)) return v;
+        return opcoes[0];
     }
 
     // ----------------------------------------------------------------- apoio

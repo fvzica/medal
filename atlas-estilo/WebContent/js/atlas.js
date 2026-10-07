@@ -88,6 +88,107 @@
     return new Date(+p[0], +p[1] - 1, +p[2], 12).getTime();
   }
 
+  // ------------------------------------------- visões configuradas / Conexão
+
+  var MESES_CURTOS = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
+  function compHumana(c) { // "2026-09" -> "set/2026"
+    if (!c) return '';
+    var p = c.split('-');
+    return p.length === 2 && +p[1] >= 1 && +p[1] <= 12 ? MESES_CURTOS[+p[1] - 1] + '/' + p[0] : c;
+  }
+
+  function fmtVisao(v, valor) {
+    if (valor == null) return '—';
+    var casas = v.casas || 0;
+    var op = { minimumFractionDigits: casas, maximumFractionDigits: casas };
+    if (v.formato === 'MOEDA') return 'R$ ' + valor.toLocaleString('pt-BR', op);
+    if (v.formato === 'PERCENTUAL') return valor.toLocaleString('pt-BR', { maximumFractionDigits: casas }) + '%';
+    if (v.formato === 'DECIMAL') return valor.toLocaleString('pt-BR', op);
+    return Math.round(valor).toLocaleString('pt-BR');
+  }
+
+  function tendHtml(delta, textoFmt, ref) {
+    if (delta == null) return ref ? '<span class="tend">' + esc(ref) + '</span>' : '';
+    return '<span class="tend ' + (delta >= 0 ? 'sobe' : 'desce') + '"><b>' +
+      (delta >= 0 ? '▲ ' : '▼ ') + textoFmt + '</b>' + (ref ? ' vs ' + esc(ref) : '') + '</span>';
+  }
+
+  /** Card de uma visão configurada no admin (valor, meta, farol, tendência). */
+  function tileVisao(v) {
+    var titulo = (v.fonte || '') + (v.meta != null
+      ? ' · meta ' + fmtVisao(v, v.meta) + (v.pct != null ? ' (' + Math.round(v.pct) + '%)' : '') : '') +
+      (v.agenciasComDado != null ? ' · ' + v.agenciasComDado + ' agência(s) com dado' : '');
+    var meta = v.meta != null
+      ? '<span class="meta-pct"><i style="width:' + Math.min(100, Math.round(v.pct || 0)) + '%"></i></span>' : '';
+    return '<button class="tile' + (v.status ? ' ' + v.status : '') + '" disabled title="' + esc(titulo) + '">' +
+      '<span class="valor">' + fmtVisao(v, v.valor) + '</span>' +
+      '<span class="rotulo">' + esc(v.titulo) + '</span>' +
+      tendHtml(v.delta, fmtVisao(v, v.delta == null ? null : Math.abs(v.delta)),
+        v.delta != null ? compHumana(v.competenciaAnterior) : compHumana(v.competencia)) + meta + '</button>';
+  }
+
+  function visoesHtml(visoes, rotulo) {
+    if (!visoes || !visoes.length) return '';
+    return '<p class="rotulo" style="margin:14px 0 2px">' + rotulo + '</p>' +
+      '<div class="grade-tiles" style="margin-top:6px">' + visoes.map(tileVisao).join('') + '</div>';
+  }
+
+  /** Tile de Conexão média da seleção (abre a lista por agência). */
+  function tileConexao(c) {
+    if (!c) return '';
+    return '<button class="tile destaque" type="button" data-lista="conexao" title="' +
+      esc(c.agencias + ' agência(s) com Conexão em ' + compHumana(c.competencia)) + '">' +
+      '<span class="valor">' + fmtInt(c.media) + '</span>' +
+      '<span class="rotulo">Conexão média · ' + esc(compHumana(c.competencia)) + '</span>' +
+      tendHtml(c.delta, fmtInt(c.delta == null ? 0 : Math.abs(c.delta)), c.delta != null ? 'mês anterior' : '') +
+      '</button>';
+  }
+
+  function sparklineSvg(hist) {
+    if (!hist || hist.length < 2) return '';
+    var W = 220, H = 46, vals = hist.map(function (h) { return h.pontos; });
+    var max = Math.max.apply(null, vals), min = Math.min.apply(null, vals);
+    var faixa = Math.max(40, max - min);
+    var pts = vals.map(function (v, i) {
+      return [10 + i * (W - 20) / (vals.length - 1), H - 8 - (v - min) / faixa * (H - 18)];
+    });
+    var linha = pts.map(function (p, i) { return (i ? 'L' : 'M') + p[0].toFixed(1) + ' ' + p[1].toFixed(1); }).join('');
+    var area = linha + 'L' + pts[pts.length - 1][0] + ' ' + (H - 4) + 'L' + pts[0][0] + ' ' + (H - 4) + 'Z';
+    var fim = pts[pts.length - 1];
+    return '<svg class="sparkline" viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="xMidYMid meet" aria-hidden="true">' +
+      '<path class="area" d="' + area + '"/><path class="tracado" d="' + linha + '"/>' +
+      '<circle class="ponto-fim" cx="' + fim[0] + '" cy="' + fim[1] + '" r="3.5"/>' +
+      '<text x="10" y="' + H + '">' + esc(compHumana(hist[0].competencia)) + '</text>' +
+      '<text x="' + (W - 10) + '" y="' + H + '" text-anchor="end">' + esc(compHumana(hist[hist.length - 1].competencia)) + '</text></svg>';
+  }
+
+  var FAIXA_NOME = { excelencia: 'Excelência', forte: 'Forte', atencao: 'Atenção', critico: 'Crítico' };
+
+  /** Card de Conexão da agência: placar, faixa, histórico e carteiras. */
+  function conexaoAgenciaHtml(k) {
+    if (!k) return '';
+    var h = '<div class="conexao-card">' +
+      '<div class="placar">' + fmtInt(k.pontos) + '<small>CONEXÃO · DE 1000</small></div>' +
+      '<div class="lado"><span class="faixa ' + esc(k.faixa) + '">' + (FAIXA_NOME[k.faixa] || k.faixa) + '</span> ' +
+      (k.delta != null ? '<span class="delta ' + (k.delta >= 0 ? 'sobe' : 'desce') + '">' +
+        (k.delta >= 0 ? '▲' : '▼') + Math.abs(k.delta) + ' vs mês anterior</span>' : '') +
+      ' <span class="rotulo">' + esc(compHumana(k.competencia)) + '</span>' +
+      sparklineSvg(k.historico) + '</div></div>';
+    if ((k.carteiras || []).length) {
+      h += '<table class="tabela"><thead><tr><th>Carteira</th><th>Gerente</th><th>Conexão</th></tr></thead><tbody>';
+      k.carteiras.forEach(function (c) {
+        h += '<tr><td><strong>' + esc(c.carteira) + '</strong></td><td>' +
+          esc(c.gerenteNome || c.gerenteMatricula || (App.contexto.veTudo ? '—' : 'reservado')) + '</td>' +
+          '<td><span class="conexao-barra"><span class="tr"><span class="ch" style="width:' +
+          Math.min(100, Math.round(c.pontos / 10)) + '%"></span></span><span class="v">' + fmtInt(c.pontos) + '</span>' +
+          (c.delta != null ? '<span class="delta ' + (c.delta >= 0 ? 'sobe' : 'desce') + '">' +
+            (c.delta >= 0 ? '▲' : '▼') + Math.abs(c.delta) + '</span>' : '') + '</span></td></tr>';
+      });
+      h += '</tbody></table>';
+    }
+    return h;
+  }
+
   // --------------------------------------------------------------- projeção
 
   function criarProjecao(geo) {
@@ -399,7 +500,7 @@
 
   function tile(rotulo, valor, tipoLista, destaque, sufixo) {
     var podeAbrir = tipoLista && (App.contexto.veTudo ||
-      ['agencias', 'carteiras', 'pdg'].indexOf(tipoLista) >= 0);
+      ['agencias', 'carteiras', 'pdg', 'conexao'].indexOf(tipoLista) >= 0);
     return '<button class="tile' + (destaque ? ' destaque' : '') + '" type="button" ' +
       (podeAbrir ? 'data-lista="' + tipoLista + '"' : 'disabled') + '>' +
       '<span class="valor">' + valor + (sufixo || '') + '</span>' +
@@ -416,6 +517,7 @@
       '<span class="rotulo">' + fmtInt(resumo.agencias) + ' agência(s)</span></div>';
 
     h += '<div class="grade-tiles">';
+    h += tileConexao(resumo.conexao);
     h += tile('Funcis', fmtInt(resumo.funcis), 'funcis');
     h += tile('Gerentes', fmtInt(resumo.gerentes), 'gerentes');
     h += tile('Assistentes', fmtInt(resumo.assistentes), 'assistentes');
@@ -424,8 +526,9 @@
       ? resumo.mediaFuncisPorAgencia.toLocaleString('pt-BR') : '—', null);
     h += tile('Tempo médio no cargo', fmtMeses(resumo.tempoMedioCargoMeses), null);
     h += tile('Tempo médio na função', fmtMeses(resumo.tempoMedioFuncaoMeses), null);
-    h += tile('Semestres com PDG', fmtInt(resumo.pdgGanhos), 'pdg', true);
+    h += tile('Semestres com PDG', fmtInt(resumo.pdgGanhos), 'pdg', !resumo.conexao);
     h += '</div>';
+    h += visoesHtml(resumo.visoes, 'Visões configuradas no admin');
 
     h += '<div class="chips" style="margin-top:2px">' +
       '<span class="badge verde">✓ ' + fmtInt(resumo.visitadas) + ' visitada(s)</span>' +
@@ -481,7 +584,7 @@
 
   var ROTULO_LISTA = { funcis: 'Funcis da seleção', gerentes: 'Gerentes da seleção',
     assistentes: 'Assistentes da seleção', carteiras: 'Carteiras da seleção',
-    pdg: 'PDG por agência' };
+    pdg: 'PDG por agência', conexao: 'Conexão por agência' };
 
   function abrirLista(f, tipo, botao) {
     var zona = $('#zona-lista');
@@ -500,6 +603,17 @@
               esc(c.nome || '') + '</small></td><td>' + esc(c.agencia) + '</td><td>' +
               esc(c.gerenteNome || c.gerenteMatricula || '—') + '</td><td>' +
               fmtInt(c.qtdClientes) + '</td></tr>';
+          });
+          h += '</tbody></table>';
+        } else if (tipo === 'conexao') {
+          h += '<table class="tabela"><thead><tr><th>Agência</th><th>Regional</th>' +
+            '<th>Conexão · ' + esc(itens.length ? compHumana(itens[0].competencia) : '') + '</th></tr></thead><tbody>';
+          itens.forEach(function (k) {
+            h += '<tr><td><button class="botao mini claro" type="button" data-prefixo="' + esc(k.prefixo) + '">' +
+              esc(k.agencia) + '</button></td><td>' + esc(k.regional || '') + '</td>' +
+              '<td><span class="conexao-barra"><span class="tr"><span class="ch" style="width:' +
+              Math.min(100, Math.round(k.pontos / 10)) + '%"></span></span><span class="v">' + fmtInt(k.pontos) +
+              '</span> <span class="faixa ' + esc(k.faixa) + '">' + (FAIXA_NOME[k.faixa] || k.faixa) + '</span></span></td></tr>';
           });
           h += '</tbody></table>';
         } else if (tipo === 'pdg') {
@@ -523,6 +637,9 @@
           h += '</tbody></table>';
         }
         zona.innerHTML = h;
+        $$('[data-prefixo]', zona).forEach(function (b) {
+          b.addEventListener('click', function () { abrirAgencia(b.getAttribute('data-prefixo')); });
+        });
         zona.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
       })
       .catch(function (e) { zona.innerHTML = '<div class="aviso">' + esc(e.message) + '</div>'; });
@@ -621,6 +738,10 @@
     h += '<button class="tile destaque" disabled><span class="valor">' + fmtInt(r.pdgGanhos) +
       '</span><span class="rotulo">Semestres com PDG</span></button>';
     h += '</div>';
+    if (d.conexao) {
+      h += '<p class="rotulo" style="margin:8px 0 0">Conexão</p>' + conexaoAgenciaHtml(d.conexao);
+    }
+    h += visoesHtml(d.visoes, 'Visões configuradas no admin');
     h += '<p class="rotulo" style="margin:8px 0 4px">Histórico de PDG</p>';
     h += pdgTimelineHtml(d.pdgHistorico || []);
     if (App.contexto.master) {
@@ -888,7 +1009,8 @@
     var r = d.resumo;
     var h = '<div class="dash-grade">';
 
-    // coluna 1: metas do período
+    // coluna 1: metas do período + visões configuradas
+    h += '<div style="display:flex;flex-direction:column;gap:18px">';
     h += '<div class="cartao"><div class="cartao-corpo">';
     h += '<h3 style="font-size:19px">Metas do semestre</h3>';
     var metas = d.metas || [];
@@ -918,8 +1040,20 @@
     }
     h += '</div></div>';
 
-    // coluna 2: histórico + equipe + situação
+    if ((d.visoes || []).length) {
+      h += '<div class="cartao"><div class="cartao-corpo">' +
+        '<h3 style="font-size:19px">Visões configuradas</h3>' +
+        '<p class="rotulo" style="margin:0 0 6px">cards definidos pelo Master a partir dos CSV da pasta</p>' +
+        '<div class="grade-tiles">' + d.visoes.map(tileVisao).join('') + '</div></div></div>';
+    }
+    h += '</div>';
+
+    // coluna 2: Conexão + histórico + equipe + situação
     h += '<div style="display:flex;flex-direction:column;gap:18px">';
+    if (d.conexao) {
+      h += '<div class="cartao"><div class="cartao-corpo">' +
+        '<h3 style="font-size:19px">Conexão</h3>' + conexaoAgenciaHtml(d.conexao) + '</div></div>';
+    }
     h += '<div class="cartao"><div class="cartao-corpo">' +
       '<h3 style="font-size:19px">PDG · histórico</h3>' +
       pdgTimelineHtml(d.pdgHistorico || []) + '</div></div>';

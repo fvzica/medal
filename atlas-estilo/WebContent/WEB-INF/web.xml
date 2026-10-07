@@ -17,6 +17,18 @@
     <param-name>atlas.foto.dir</param-name>
     <param-value>${catalina.base}/dados/atlasestilo/fotos</param-value>
   </context-param>
+  <!-- Pasta PADRÃO dos CSV lidos pelo servidor. O Master pode apontar outra
+       pasta na tela Admin (fica gravada no banco e prevalece sobre esta). -->
+  <context-param>
+    <param-name>atlas.csv.dir</param-name>
+    <param-value>${catalina.base}/dados/atlasestilo/csv</param-value>
+  </context-param>
+  <!-- Monitor que reimporta os CSV quando o arquivo muda (intervalo em
+       minutos definido no Admin; 0 desliga). false desativa de vez. -->
+  <context-param>
+    <param-name>atlas.csv.monitor</param-name>
+    <param-value>true</param-value>
+  </context-param>
 
   <!-- Dados de exemplo: semeados na 1ª subida quando o banco está vazio.
        O Master pode limpar/recarregar pela tela Admin. -->

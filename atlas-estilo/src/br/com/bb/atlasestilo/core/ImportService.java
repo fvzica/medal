@@ -13,16 +13,17 @@ import java.util.Map;
 
 import br.com.bb.atlasestilo.dao.ConfigDao;
 import br.com.bb.atlasestilo.db.Db;
-import br.com.bb.atlasestilo.util.Csv;
 import br.com.bb.atlasestilo.util.Json;
+import br.com.bb.atlasestilo.util.Saneador;
 import br.com.bb.atlasestilo.util.Texto;
 import br.com.bb.atlasestilo.util.Xlsx;
 
 /**
  * Imports administráveis (Master): cada planilha tem um tipo, com modelo CSV,
  * prévia (nada é gravado) e confirmação (upsert em transação + auditoria).
- * Aceita CSV (';' ou ',', UTF-8 com BOM) e .xlsx (leitor próprio, sem POI).
- * Cabeçalhos são casados por nome normalizado, com sinônimos tolerados.
+ * Aceita CSV (qualquer delimitador/encoding, saneado pelo Saneador) e .xlsx
+ * (leitor próprio, sem POI). Cabeçalhos são casados por nome normalizado,
+ * com sinônimos tolerados e de-para manual opcional (fontes do admin).
  */
 public final class ImportService {
 
@@ -52,35 +53,110 @@ public final class ImportService {
         }
     }
 
+    /** Resultado de um processamento (prévia ou gravação). */
+    public static final class Resultado {
+        public int linhas, inseridos, atualizados, ignorados;
+        public final List<String> erros = new ArrayList<>();
+        public String erroFatal;
+        public final Map<String, String> mapeamento = new java.util.LinkedHashMap<>();
+
+        public String json(String tipo, boolean confirmado) {
+            if (erroFatal != null) return Json.obj().put("erro", erroFatal).fim();
+            Json.Arr errosJson = Json.arr();
+            for (String e : erros) errosJson.addStr(e);
+            return Json.obj().put("tipo", tipo).put("confirmado", confirmado).put("linhas", linhas)
+                .put("inseridos", inseridos).put("atualizados", atualizados).put("ignorados", ignorados)
+                .putRaw("erros", errosJson.fim()).fim();
+        }
+    }
+
+    /** Lê o arquivo (CSV saneado ou .xlsx) e devolve a tabela normalizada. */
+    public static Saneador.Tabela lerTabela(String nomeArquivo, byte[] dados) throws IOException {
+        if (nomeArquivo != null && nomeArquivo.toLowerCase().endsWith(".xlsx")) {
+            return Saneador.deLinhas(Xlsx.ler(new java.io.ByteArrayInputStream(dados)));
+        }
+        return Saneador.ler(dados);
+    }
+
     /**
-     * Processa o arquivo. confirmar=false -> só valida e devolve a prévia;
-     * confirmar=true -> grava em transação e registra na auditoria.
+     * Processa o arquivo enviado. confirmar=false -> só valida e devolve a
+     * prévia; confirmar=true -> grava em transação e registra na auditoria.
      */
     public static String processar(String tipo, String nomeArquivo, InputStream in,
                                    boolean confirmar, String matricula, long agora)
             throws IOException, SQLException {
-        List<String[]> linhas = nomeArquivo != null
-                && nomeArquivo.toLowerCase().endsWith(".xlsx")
-                ? Xlsx.ler(in) : Csv.ler(in);
-        if (linhas.size() < 2) {
-            return Json.obj().put("erro", "Arquivo sem linhas de dados (só cabeçalho?).").fim();
-        }
+        byte[] dados = lerTudo(in);
+        Saneador.Tabela t = lerTabela(nomeArquivo, dados);
+        Saneador.Relatorio rel = new Saneador.Relatorio();
+        Resultado r = processarTabela(tipo, nomeArquivo, t, null, confirmar, matricula, agora, rel);
+        String json = r.json(tipo, confirmar);
+        if (r.erroFatal != null) return json;
+        // anexa o saneamento à resposta da tela de upload
+        return json.substring(0, json.length() - 1) +
+            ",\"encoding\":" + Json.str(t.encoding) +
+            ",\"separador\":" + Json.str(String.valueOf(t.separador)) +
+            ",\"saneamento\":" + rel.json() + "}";
+    }
 
-        Map<String, Integer> col = mapearCabecalho(tipo, linhas.get(0));
+    public static byte[] lerTudo(InputStream in) throws IOException {
+        java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+        byte[] buf = new byte[16384];
+        int n;
+        while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
+        return out.toByteArray();
+    }
+
+    /**
+     * Núcleo do import tipado sobre uma tabela já saneada. mapeamento (opcional)
+     * força campo -> cabeçalho normalizado; o resto é casado por sinônimos.
+     * Números passam pelo Saneador com estilo inferido por coluna.
+     */
+    public static Resultado processarTabela(String tipo, String nomeArquivo, Saneador.Tabela t,
+                                            Map<String, String> mapeamento, boolean confirmar,
+                                            String matricula, long agora, Saneador.Relatorio rel)
+            throws SQLException {
+        Resultado res = new Resultado();
+        if (t.linhas.isEmpty()) {
+            res.erroFatal = "Arquivo sem linhas de dados (só cabeçalho?).";
+            return res;
+        }
+        Map<String, Integer> col = mapearCabecalho(tipo, t, mapeamento);
+        for (Map.Entry<String, Integer> e : col.entrySet()) res.mapeamento.put(e.getKey(), t.cabecalho[e.getValue()]);
         String faltando = obrigatorias(tipo, col);
         if (faltando != null) {
-            return Json.obj().put("erro", "Coluna obrigatória ausente: " + faltando
-                    + ". Baixe o modelo para conferir o formato.").fim();
+            res.erroFatal = "Coluna obrigatória ausente: " + faltando
+                    + ". Colunas encontradas: " + String.join(", ", t.cabecalho)
+                    + ". Baixe o modelo para conferir o formato.";
+            return res;
+        }
+
+        // estilo numérico por coluna (vírgula ou ponto decimal), inferido do arquivo inteiro
+        Map<String, Saneador.Estilo> estilos = new HashMap<>();
+        for (String campo : numericos(tipo)) {
+            Integer ci = col.get(campo);
+            if (ci != null) estilos.put(campo, Saneador.inferirEstilo(Saneador.valoresDe(t, ci)));
         }
 
         List<Map<String, String>> registros = new ArrayList<>();
-        List<String> erros = new ArrayList<>();
-        for (int i = 1; i < linhas.size(); i++) {
-            String[] l = linhas.get(i);
+        for (int i = 0; i < t.linhas.size(); i++) {
+            String[] l = t.linhas.get(i);
+            int numLinha = t.numeroLinha.get(i);
             Map<String, String> reg = extrair(tipo, col, l);
+            // códigos com letra no lugar de dígito (O/l) e números tolerantes
+            for (String campo : new String[] { "prefixo", "matricula", "gerente_matricula" }) {
+                if (reg.containsKey(campo)) reg.put(campo, Saneador.codigoNumerico(reg.get(campo), rel, numLinha, campo));
+            }
+            for (String campo : numericos(tipo)) {
+                if (!reg.containsKey(campo)) continue;
+                String bruto = reg.get(campo);
+                if (Texto.vazio(bruto)) continue;
+                Double d = Saneador.numero(bruto, estilos.get(campo), rel, numLinha, campo);
+                reg.put(campo, d == null ? "" : Json.num(d));
+            }
             String erro = validar(tipo, reg);
             if (erro != null) {
-                if (erros.size() < 10) erros.add("Linha " + (i + 1) + ": " + erro);
+                if (res.erros.size() < 10) res.erros.add("Linha " + numLinha + ": " + erro);
+                if (rel != null) rel.rejeitou(numLinha, erro, String.join(";", l));
                 continue;
             }
             registros.add(reg);
@@ -89,21 +165,21 @@ public final class ImportService {
         Map<String, Map<String, String>> porChave = new java.util.LinkedHashMap<>();
         for (Map<String, String> r : registros) porChave.put(chave(tipo, r), r);
 
-        int ignorados = (linhas.size() - 1) - porChave.size();
-        int inseridos = 0, atualizados = 0;
+        res.linhas = t.linhas.size();
+        res.ignorados = t.linhas.size() - porChave.size();
 
         try (Connection c = Db.conexao()) {
             c.setAutoCommit(false);
             try {
                 for (Map<String, String> r : porChave.values()) {
                     boolean existia = existe(c, tipo, r);
-                    if (existia) atualizados++; else inseridos++;
+                    if (existia) res.atualizados++; else res.inseridos++;
                     if (confirmar) gravar(c, tipo, r, agora);
                 }
                 if (confirmar) {
                     c.commit();
-                    ConfigDao.importLog(tipo, nomeArquivo, inseridos, atualizados,
-                                        ignorados, matricula, agora);
+                    ConfigDao.importLog(tipo, nomeArquivo, res.inseridos, res.atualizados,
+                                        res.ignorados, matricula, agora);
                 } else {
                     c.rollback();
                 }
@@ -114,26 +190,27 @@ public final class ImportService {
                 c.setAutoCommit(true);
             }
         }
+        return res;
+    }
 
-        Json.Arr errosJson = Json.arr();
-        for (String e : erros) errosJson.addStr(e);
-        return Json.obj()
-            .put("tipo", tipo)
-            .put("confirmado", confirmar)
-            .put("linhas", linhas.size() - 1)
-            .put("inseridos", inseridos)
-            .put("atualizados", atualizados)
-            .put("ignorados", ignorados)
-            .putRaw("erros", errosJson.fim())
-            .fim();
+    private static String[] numericos(String tipo) {
+        switch (tipo) {
+            case "agencias":  return new String[] { "lat", "lng" };
+            case "carteiras": return new String[] { "qtd_clientes" };
+            case "pdg":       return new String[] { "pontuacao" };
+            case "metas":     return new String[] { "meta", "realizado", "projecao" };
+            default:          return new String[0];
+        }
     }
 
     // -------------------------------------------------------------- cabeçalho
 
     private static final Map<String, String[]> SINONIMOS = new HashMap<>();
     static {
-        SINONIMOS.put("prefixo", new String[] { "PREFIXO", "PREF", "AGENCIA PREFIXO", "DEPENDENCIA" });
-        SINONIMOS.put("nome", new String[] { "NOME", "AGENCIA", "NOME AGENCIA", "DEPENDENCIA NOME" });
+        SINONIMOS.put("prefixo", new String[] { "PREFIXO", "PREF", "AGENCIA PREFIXO", "DEPENDENCIA",
+            "PREFIXO AGENCIA", "COD AGENCIA", "CODIGO AGENCIA", "PREFIXO DEPENDENCIA", "AG" });
+        SINONIMOS.put("nome", new String[] { "NOME", "AGENCIA", "NOME AGENCIA", "DEPENDENCIA NOME",
+            "NOME DEPENDENCIA", "NOME DA AGENCIA" });
         SINONIMOS.put("uf", new String[] { "UF", "ESTADO", "SIGLA UF" });
         SINONIMOS.put("municipio", new String[] { "MUNICIPIO", "CIDADE" });
         SINONIMOS.put("endereco", new String[] { "ENDERECO", "LOGRADOURO" });
@@ -178,31 +255,64 @@ public final class ImportService {
         }
     }
 
-    private static Map<String, Integer> mapearCabecalho(String tipo, String[] cabecalho) {
+    /** Mesma normalização do Saneador para comparar sinônimos com o cabeçalho. */
+    public static String chaveColuna(String s) {
+        return Texto.normalizar(s).replaceAll("[^A-Z0-9%]+", " ").trim();
+    }
+
+    /** Sinônimos públicos (a tela de de-para do admin mostra os aceitos). */
+    public static String[] sinonimos(String campo) {
+        String[] s = SINONIMOS.get(campo);
+        return s == null ? new String[0] : s;
+    }
+
+    /**
+     * Casa os campos do tipo com as colunas da tabela: primeiro o de-para
+     * manual (campo -> cabeçalho normalizado), depois os sinônimos.
+     */
+    static Map<String, Integer> mapearCabecalho(String tipo, Saneador.Tabela t,
+                                                Map<String, String> manual) {
         Map<String, Integer> col = new HashMap<>();
-        for (int i = 0; i < cabecalho.length; i++) {
-            String nome = Texto.normalizar(cabecalho[i]);
-            if (nome.isEmpty()) continue;
+        if (manual != null) {
+            for (Map.Entry<String, String> e : manual.entrySet()) {
+                int i = t.indice(chaveColuna(e.getValue()));
+                if (i >= 0) col.put(e.getKey(), i);
+            }
+        }
+        for (int i = 0; i < t.cabecalhoNorm.length; i++) {
+            String nome = t.cabecalhoNorm[i];
+            if (nome.isEmpty() || col.containsValue(i)) continue;
             for (String campo : campos(tipo)) {
                 if (col.containsKey(campo)) continue;
+                boolean achou = false;
                 for (String sin : SINONIMOS.get(campo)) {
-                    if (nome.equals(sin)) { col.put(campo, i); break; }
+                    if (nome.equals(chaveColuna(sin))) { col.put(campo, i); achou = true; break; }
                 }
+                if (achou) break;
             }
         }
         return col;
     }
 
-    private static String obrigatorias(String tipo, Map<String, Integer> col) {
-        String[] obriga;
+    public static String[] camposDe(String tipo) { return campos(tipo); }
+
+    private static String[] obrigatoriosDe(String tipo) {
         switch (tipo) {
-            case "agencias":  obriga = new String[] { "prefixo", "nome" }; break;
-            case "funcis":    obriga = new String[] { "matricula", "nome", "prefixo" }; break;
-            case "carteiras": obriga = new String[] { "prefixo", "codigo" }; break;
-            case "pdg":       obriga = new String[] { "prefixo", "semestre", "atingiu" }; break;
-            default:          obriga = new String[] { "prefixo", "periodo", "indicador" };
+            case "agencias":  return new String[] { "prefixo", "nome" };
+            case "funcis":    return new String[] { "matricula", "nome", "prefixo" };
+            case "carteiras": return new String[] { "prefixo", "codigo" };
+            case "pdg":       return new String[] { "prefixo", "semestre", "atingiu" };
+            default:          return new String[] { "prefixo", "periodo", "indicador" };
         }
-        for (String o : obriga) if (!col.containsKey(o)) return o;
+    }
+
+    public static boolean obrigatorio(String tipo, String campo) {
+        for (String o : obrigatoriosDe(tipo)) if (o.equals(campo)) return true;
+        return false;
+    }
+
+    private static String obrigatorias(String tipo, Map<String, Integer> col) {
+        for (String o : obrigatoriosDe(tipo)) if (!col.containsKey(o)) return o;
         return null;
     }
 

@@ -149,3 +149,83 @@ CREATE TABLE IF NOT EXISTS import_log (
   criado_por  TEXT,
   criado_em   INTEGER
 );
+
+-- ------------------------------------------------------------------------
+-- Fontes de dados em CSV na pasta do servidor (configuradas no Admin)
+-- ------------------------------------------------------------------------
+
+-- Parâmetros editáveis pelo Master (pasta dos CSV, intervalo do monitor...)
+CREATE TABLE IF NOT EXISTS config_parametro (
+  chave          TEXT PRIMARY KEY,
+  valor          TEXT,
+  atualizado_por TEXT,
+  atualizado_em  INTEGER
+);
+
+-- Cada fonte aponta para um arquivo (ou padrão, ex.: conexao_*.csv) da pasta.
+-- tipo: agencias | funcis | carteiras | pdg | metas | conexao | indicadores
+CREATE TABLE IF NOT EXISTS fonte_csv (
+  id                INTEGER PRIMARY KEY AUTOINCREMENT,
+  nome              TEXT NOT NULL,
+  tipo              TEXT NOT NULL,
+  arquivo           TEXT NOT NULL,
+  ativo             INTEGER NOT NULL DEFAULT 1,
+  automatico        INTEGER NOT NULL DEFAULT 1,
+  mapeamento        TEXT,
+  ultima_leitura_em INTEGER,
+  ultimo_arquivo    TEXT,
+  ultimo_mtime      INTEGER,
+  ultimo_status     TEXT,
+  ultimo_resumo     TEXT,
+  ultimo_relatorio  TEXT,
+  ultimo_rejeitadas TEXT,
+  criado_por        TEXT,
+  criado_em         INTEGER
+);
+
+-- Conexão por competência (AAAA-MM). carteira = '' é a nota da agência;
+-- as demais linhas são a Conexão de cada carteira/gerente.
+CREATE TABLE IF NOT EXISTS conexao (
+  prefixo           TEXT NOT NULL,
+  competencia       TEXT NOT NULL,
+  carteira          TEXT NOT NULL DEFAULT '',
+  gerente_matricula TEXT,
+  gerente_nome      TEXT,
+  pontos            REAL NOT NULL,
+  origem            TEXT NOT NULL DEFAULT 'IMPORT',
+  atualizado_em     INTEGER,
+  PRIMARY KEY (prefixo, competencia, carteira)
+);
+CREATE INDEX IF NOT EXISTS idx_conexao_comp ON conexao(competencia);
+
+-- Valores genéricos de uma fonte 'indicadores' (uma linha por célula numérica)
+CREATE TABLE IF NOT EXISTS indicador_valor (
+  fonte_id    INTEGER NOT NULL,
+  prefixo     TEXT NOT NULL,
+  competencia TEXT NOT NULL DEFAULT '',
+  coluna      TEXT NOT NULL,
+  valor       REAL,
+  PRIMARY KEY (fonte_id, prefixo, competencia, coluna)
+);
+CREATE INDEX IF NOT EXISTS idx_indicador_col ON indicador_valor(fonte_id, coluna, competencia);
+
+-- Visões (cards) do dashboard montadas a partir das fontes
+CREATE TABLE IF NOT EXISTS visao_dashboard (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  titulo        TEXT NOT NULL,
+  fonte_id      INTEGER NOT NULL,
+  coluna        TEXT NOT NULL,
+  agregacao     TEXT NOT NULL DEFAULT 'MEDIA',
+  formato       TEXT NOT NULL DEFAULT 'INTEIRO',
+  casas         INTEGER NOT NULL DEFAULT 0,
+  meta          REAL,
+  coluna_meta   TEXT,
+  melhor        TEXT NOT NULL DEFAULT 'MAIOR',
+  minimo        REAL,
+  maximo        REAL,
+  perfil_minimo TEXT NOT NULL DEFAULT 'COLEGA',
+  ordem         INTEGER NOT NULL DEFAULT 0,
+  ativo         INTEGER NOT NULL DEFAULT 1,
+  criado_por    TEXT,
+  criado_em     INTEGER
+);
