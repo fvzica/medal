@@ -49,7 +49,7 @@ public class ApiServlet extends HttpServlet {
                 case "contexto": {
                     boolean maps = Boolean.TRUE.equals(
                         getServletContext().getAttribute(AppListener.ATTR_MAPS_ATIVO));
-                    Http.json(resp, Json.obj()
+                    Json.Obj ctx = Json.obj()
                         .put("matricula", s.matricula)
                         .put("nome", s.nome)
                         .put("prefixo", s.prefixo)
@@ -58,8 +58,10 @@ public class ApiServlet extends HttpServlet {
                         .put("veTudo", s.veTudo())
                         .put("master", s.master())
                         .put("mapsAtivo", maps)
-                        .put("somenteLeitura", s.somenteLeitura)
-                        .fim());
+                        .put("somenteLeitura", s.somenteLeitura);
+                    // ritmo de cobrança (só interessa a quem cobra)
+                    if (s.master()) ctx.putRaw("cadencia", GestaoDao.cadencia().json());
+                    Http.json(resp, ctx.fim());
                     return;
                 }
                 case "mapa":
@@ -128,13 +130,18 @@ public class ApiServlet extends HttpServlet {
                     if (!exigir(resp, s.master())) return;
                     Http.json(resp, GestaoDao.planejamento(agora));
                     return;
+                case "hoje": // aviso do dia na abertura da ferramenta
+                    if (!exigir(resp, s.master())) return;
+                    Http.json(resp, GestaoDao.resumoDoDia(agora));
+                    return;
                 case "pontos":
                 case "acoes":
                     if (!exigir(resp, s.master())) return;
                     Http.json(resp, GestaoDao.acoes(
                         Texto.prefixo(Http.param(req, "prefixo", "")),
                         Http.param(req, "status", null), Http.param(req, "prazo", null),
-                        Http.param(req, "regional", null), Http.param(req, "prioridade", null), agora));
+                        Http.param(req, "regional", null), Http.param(req, "prioridade", null),
+                        Http.param(req, "prova", null), agora));
                     return;
                 case "ponto": {
                     if (!exigir(resp, s.master())) return;
@@ -190,6 +197,7 @@ public class ApiServlet extends HttpServlet {
             case "fontes":    Http.json(resp, FonteDao.fontesJson()); return;
             case "visoes":    Http.json(resp, FonteDao.visoesJson()); return;
             case "monitor":   Http.json(resp, MonitorCsv.estado()); return;
+            case "cadencia":  Http.json(resp, GestaoDao.cadencia().json()); return;
             case "campos": {
                 String tipo = cam.length > 2 ? cam[2] : "";
                 if (!FonteDao.tipoValido(tipo)) { Http.erro(resp, 404, "Tipo desconhecido."); return; }
@@ -357,23 +365,73 @@ public class ApiServlet extends HttpServlet {
     }
 
     private void postPonto(HttpServletRequest req, HttpServletResponse resp, Sessao s,
-                           String[] cam, long agora) throws IOException, SQLException {
+                           String[] cam, long agora) throws IOException, ServletException, SQLException {
         if (cam.length >= 3 && cam[2].equals("excluir")) {
-            boolean ok = GestaoDao.pontoExcluir(Long.parseLong(cam[1]));
+            long pontoId = Long.parseLong(cam[1]);
+            // fotos antes/depois vão junto (registro e arquivo)
+            for (String arquivo : FotoDao.excluirDaAcao(pontoId)) {
+                java.io.File f = new java.io.File(dirFotos(), arquivo);
+                if (f.exists() && !f.delete()) f.deleteOnExit();
+            }
+            boolean ok = GestaoDao.pontoExcluir(pontoId);
+            Http.json(resp, Json.obj().put("ok", ok).fim());
+            return;
+        }
+        // /api/ponto/{id}/foto?momento=ANTES|DEPOIS — foto da ação, restrita ao Master
+        if (cam.length >= 3 && cam[2].equals("foto")) {
+            long pontoId = Long.parseLong(cam[1]);
+            String prefixo = GestaoDao.pontoPrefixo(pontoId);
+            if (prefixo == null) { Http.erro(resp, 404, "Ação não encontrada."); return; }
+            String momento = "DEPOIS".equals(req.getParameter("momento")) ? "DEPOIS" : "ANTES";
+            String descricao = GestaoDao.pontoDescricao(pontoId);
+            String legenda = (momento.equals("DEPOIS") ? "Depois · " : "Antes · ") + Texto.aparar(descricao, 120);
+            int gravadas = 0;
+            for (Part p : req.getParts()) {
+                if (!"arquivo".equals(p.getName()) || p.getSize() == 0) continue;
+                String ext = extensaoImagem(p.getContentType());
+                if (ext == null) continue;
+                String id = UUID.randomUUID().toString().replace("-", "");
+                java.io.File destino = new java.io.File(dirFotos(), id + ext);
+                java.nio.file.Files.copy(p.getInputStream(), destino.toPath());
+                FotoDao.inserir(id, prefixo, null, "ACAO", legenda, id + ext, p.getContentType(),
+                        s.matricula, agora, null, true, pontoId, momento);
+                gravadas++;
+            }
+            Http.json(resp, Json.obj().put("ok", gravadas > 0).put("gravadas", gravadas).fim());
+            return;
+        }
+        // /api/ponto/{id}/verificar — conferência in loco: resultado=CONFIRMADO|NAO_FEITO (+ visitaId, texto)
+        if (cam.length >= 3 && cam[2].equals("verificar")) {
+            String resultado = Http.param(req, "resultado", "");
+            if (!resultado.equals("CONFIRMADO") && !resultado.equals("NAO_FEITO")) {
+                Http.erro(resp, 400, "Resultado inválido (CONFIRMADO | NAO_FEITO).");
+                return;
+            }
+            String visitaParam = req.getParameter("visitaId");
+            Long visitaId = Texto.vazio(visitaParam) ? null : Long.valueOf(visitaParam.trim());
+            boolean ok = GestaoDao.pontoVerificar(Long.parseLong(cam[1]), resultado.equals("CONFIRMADO"),
+                    visitaId, Http.param(req, "texto", null), s.matricula, agora);
             Http.json(resp, Json.obj().put("ok", ok).fim());
             return;
         }
         String status = Http.param(req, "status", null);
         if (status != null && !status.equals("ABERTO") && !status.equals("EM_TRATATIVA")
-                && !status.equals("RESOLVIDO")) {
+                && !status.equals("RESOLVIDO") && !status.equals(GestaoDao.ST_AGUARDANDO)) {
             Http.erro(resp, 400, "Status inválido.");
             return;
         }
-        // /api/ponto/{id}/comentar — retorno na linha do tempo (com ou sem mudança de status)
+        // /api/ponto/{id}/comentar — linha do tempo: retorno (padrão), cobrança (tipo=COBRANCA,
+        // adiar=dias até a próxima) ou mudança de status (tipo=STATUS)
         if (cam.length >= 3 && cam[2].equals("comentar")) {
             String texto = Http.param(req, "texto", null);
-            if (texto == null && status == null) { Http.erro(resp, 400, "Escreva o retorno ou mude o status."); return; }
-            long id = GestaoDao.pontoComentar(Long.parseLong(cam[1]), texto, status, s.matricula, agora);
+            String tipo = GestaoDao.tipoAtualizacaoValido(Http.param(req, "tipo", "RETORNO"));
+            if (texto == null && status == null && !tipo.equals("COBRANCA")) {
+                Http.erro(resp, 400, "Escreva o retorno ou mude o status.");
+                return;
+            }
+            String adiar = req.getParameter("adiar");
+            Integer adiarDias = Texto.vazio(adiar) ? null : Integer.valueOf(adiar.trim());
+            long id = GestaoDao.pontoComentar(Long.parseLong(cam[1]), texto, status, s.matricula, agora, tipo, adiarDias);
             Http.json(resp, Json.obj().put("ok", true).put("id", id).fim());
             return;
         }
@@ -545,6 +603,13 @@ public class ApiServlet extends HttpServlet {
             }
             case "fonte": postFonte(req, resp, s, cam, agora); return;
             case "visao": postVisao(req, resp, s, cam, agora); return;
+            case "cadencia": {
+                GestaoDao.Cadencia atual = GestaoDao.cadencia();
+                GestaoDao.cadenciaDefinir(Http.paramInt(req, "alta", atual.alta), Http.paramInt(req, "media", atual.media),
+                    Http.paramInt(req, "baixa", atual.baixa), Http.paramInt(req, "parada", atual.parada), s.matricula, agora);
+                Http.json(resp, GestaoDao.cadencia().json());
+                return;
+            }
             case "monitor": {
                 if (cam.length >= 3 && cam[2].equals("rodar")) {
                     Http.json(resp, MonitorCsv.rodar(agora, true));

@@ -147,6 +147,27 @@
     });
   }
 
+  // ------------------------------------------------- cadência de cobrança
+
+  function renderCadencia(c) {
+    $('#cad-alta').value = c.ALTA; $('#cad-media').value = c.MEDIA; $('#cad-baixa').value = c.BAIXA; $('#cad-parada').value = c.parada;
+    $('#cad-situacao').textContent = 'Hoje: alta a cada ' + c.ALTA + ' dias · média ' + c.MEDIA + ' · baixa ' + c.BAIXA +
+      ' · parada após ' + c.parada + ' dias sem retorno. Um retorno do responsável reinicia o relógio; "cobrei" marca a próxima cobrança.';
+  }
+
+  function carregarCadencia() {
+    return api('admin/cadencia').then(renderCadencia).catch(function (e) { $('#cad-situacao').textContent = e.message; });
+  }
+
+  function montarCadencia() {
+    $('#cad-salvar').addEventListener('click', function () {
+      post('admin/cadencia', { alta: $('#cad-alta').value, media: $('#cad-media').value,
+        baixa: $('#cad-baixa').value, parada: $('#cad-parada').value })
+        .then(function (c) { renderCadencia(c); toast('Cadência salva.'); })
+        .catch(function (e) { toast(e.message); });
+    });
+  }
+
   function renderPasta(p) {
     if (document.activeElement !== $('#pasta-caminho')) $('#pasta-caminho').value = p.pasta || '';
     $('#pasta-minutos').value = p.monitorMinutos;
@@ -641,6 +662,8 @@
     montarPasta();
     montarFontes();
     montarVisoes();
+    montarCadencia();
+    carregarCadencia();
     carregarPasta();
     carregarFontes().then(carregarVisoes);
     montarImports();

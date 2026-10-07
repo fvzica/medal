@@ -38,6 +38,17 @@ public final class Migracoes {
         { "ponto_melhoria", "responsavel", "TEXT" },
         { "ponto_melhoria", "prioridade",  "TEXT NOT NULL DEFAULT 'MEDIA'" },
         { "ponto_melhoria", "tipo",        "TEXT NOT NULL DEFAULT 'ACAO'" },
+        // -- cadência de cobrança e fechamento comprovado
+        { "ponto_melhoria", "proxima_cobranca_em",  "INTEGER" },
+        { "ponto_melhoria", "informado_em",         "INTEGER" },
+        { "ponto_melhoria", "verificado_em",        "INTEGER" },
+        { "ponto_melhoria", "verificado_visita_id", "INTEGER" },
+        { "ponto_melhoria", "reaberturas",          "INTEGER NOT NULL DEFAULT 0" },
+        // -- linha do tempo: retorno do responsável, cobrança do Master, mudança de status, conferência
+        { "acao_atualizacao", "tipo", "TEXT NOT NULL DEFAULT 'RETORNO'" },
+        // -- fotos de ação (antes/depois), também restritas
+        { "foto", "ponto_id", "INTEGER" },
+        { "foto", "momento",  "TEXT" },
     };
 
     public static void aplicar() throws SQLException {

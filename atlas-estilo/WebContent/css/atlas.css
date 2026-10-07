@@ -565,6 +565,55 @@ code{font-family:var(--ff-mono);font-size:12px;background:var(--bg-3);padding:1p
 .acao-card .timeline{grid-column:2/-1;margin-top:8px;border-left:2px solid var(--borda);padding-left:12px;display:flex;flex-direction:column;gap:6px}
 .acao-card .timeline .ev{font-size:12.5px;color:var(--texto-2)}
 .acao-card .timeline .ev small{font-family:var(--ff-mono);font-size:10px;color:var(--texto-3);margin-right:6px}
+/* cadência de cobrança e fechamento comprovado */
+.acao-card.parada{border-left:3px solid var(--ambar)}
+.acao-card.aguardando{border-color:rgba(37,99,235,.35);background:linear-gradient(0deg,var(--info-suave),var(--info-suave)),var(--card)}
+.acao-card.cobrar .desc::after{content:"cobrar hoje";font:600 10px/1 var(--ff-mono);letter-spacing:.04em;text-transform:uppercase;
+  color:var(--acento-texto);background:var(--acento-suave);border-radius:999px;padding:3px 7px;margin-left:8px;vertical-align:2px}
+.acao-card .retorno .cobranca{display:inline-flex;gap:6px;align-items:center;padding-left:8px;border-left:1px solid var(--borda)}
+.acao-card .mini-form{grid-column:2/-1;margin-top:8px;padding:12px;border:1px dashed var(--borda-forte);border-radius:var(--radius);
+  background:var(--bg);display:flex;flex-direction:column;gap:8px}
+.acao-card .mini-form textarea{min-height:64px}
+.acao-card .mini-form .linha{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.acao-card .mini-form .foto-pendente{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--texto-3)}
+.acao-card .mini-form .foto-pendente img{width:40px;height:40px;object-fit:cover;border-radius:var(--radius-sm);border:1px solid var(--borda)}
+.fotos-par{grid-column:2/-1;display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:8px}
+.fotos-par .lado{border:1px solid var(--borda);border-radius:var(--radius);padding:6px 8px;background:var(--bg);display:flex;gap:10px;align-items:center}
+.fotos-par .lado .rotulo{margin:0;display:flex;flex-direction:column;gap:4px;align-items:flex-start;flex:none;min-width:58px}
+.fotos-par .lado .rotulo .botao{padding:1px 7px;font-size:11px}
+.fotos-par .miniaturas{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.fotos-par .miniaturas img{width:48px;height:48px;object-fit:cover;border-radius:var(--radius-sm);border:1px solid var(--borda);cursor:zoom-in;
+  transition:transform .15s var(--ease-out)}
+.fotos-par .miniaturas img:hover{transform:scale(1.06)}
+.fotos-par .miniaturas .vazia{width:48px;height:48px;border-radius:var(--radius-sm);border:1px dashed var(--borda-forte);display:grid;
+  place-items:center;color:var(--texto-4);font-size:16px}
+.fotos-par .lado.depois{border-color:var(--verde)}
+.acao-card .meta .ambar{color:var(--ambar-texto);font-weight:600}
+.acao-card .timeline .ev .badge.ouro{margin-right:6px}
+/* bloco "Conferir" no checklist da visita */
+.conferir{display:flex;flex-direction:column;gap:6px;margin-top:6px}
+.conferir .item{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:center;padding:10px 12px;
+  border:1px solid var(--borda);border-radius:var(--radius);background:var(--card)}
+.conferir .item .desc{font-weight:600;font-size:13px}
+.conferir .item small{display:block;color:var(--texto-3);font-size:11.5px;margin-top:2px}
+.conferir .tri{display:inline-flex;gap:2px;padding:3px;border-radius:var(--radius);background:var(--bg-3);border:1px solid var(--borda)}
+.conferir .tri button{border:none;background:none;border-radius:var(--radius-sm);padding:5px 10px;font-size:12px;color:var(--texto-2);cursor:pointer;font:inherit}
+.conferir .tri button.sel{background:var(--card);color:var(--texto);font-weight:600;box-shadow:var(--sombra)}
+.conferir .tri button.sel[data-r="CONFIRMADO"]{color:var(--verde-texto)}
+.conferir .tri button.sel[data-r="NAO_FEITO"]{color:var(--vinho-texto)}
+/* aviso do dia (abertura da ferramenta, só Master) */
+.aviso-dia{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin:0 0 16px;padding:12px 16px;border-radius:var(--radius-lg);
+  background:linear-gradient(90deg,var(--navy),#172554);color:#fff;border:1px solid rgba(245,197,24,.35);box-shadow:var(--sombra)}
+.aviso-dia .pulso{width:8px;height:8px;border-radius:50%;background:var(--acento);box-shadow:0 0 10px var(--acento);animation:piscar 1.6s infinite}
+.aviso-dia b{color:var(--acento)}
+.aviso-dia .itens{display:flex;gap:14px;flex-wrap:wrap;font-size:13.5px}
+.aviso-dia .itens span{opacity:.92}
+.aviso-dia .acoes{margin-left:auto;display:flex;gap:8px;align-items:center}
+.aviso-dia .botao.claro{background:rgba(255,255,255,.1);border-color:rgba(255,255,255,.25);color:#fff}
+.aviso-dia .fechar{background:none;border:none;color:#fff;opacity:.7;cursor:pointer;font-size:18px;line-height:1;padding:4px 6px}
+.aviso-dia .fechar:hover{opacity:1}
+.segmentado .contador.mini{display:inline-grid;place-items:center;min-width:18px;height:18px;padding:0 5px;border-radius:999px;
+  background:var(--acento);color:var(--sobre-acento);font:700 10.5px/1 var(--ff-mono);margin-left:6px;vertical-align:1px}
 .tabela-acoes td .acao-card{margin:0;border:none;padding:0;background:none}
 .so-master{display:none}
 html.master .so-master{display:inline-flex}

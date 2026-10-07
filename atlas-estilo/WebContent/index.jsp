@@ -80,10 +80,14 @@
     <div class="cartao"><div class="cartao-corpo">
       <div class="toolbar" id="acoes-toolbar">
         <div class="segmentado" id="acoes-status">
+          <button type="button" data-v="COBRAR">Cobrar hoje <span class="contador mini" id="acoes-n-cobrar" hidden></span></button>
           <button type="button" data-v="PENDENTES" class="ativo">Pendentes</button>
           <button type="button" data-v="VENCIDAS">Vencidas</button>
+          <button type="button" data-v="PARADAS">Paradas</button>
           <button type="button" data-v="7DIAS">Vencem em 7 dias</button>
+          <button type="button" data-v="AGUARDANDO">A conferir</button>
           <button type="button" data-v="RESOLVIDO">Concluídas</button>
+          <button type="button" data-v="SEMPROVA" title="concluídas sem foto do depois nem conferência">Sem prova</button>
           <button type="button" data-v="">Todas</button>
         </div>
         <select id="acoes-prioridade"><option value="">Toda prioridade</option>
@@ -126,6 +130,7 @@
 </div>
 
 <input type="file" id="foto-visita-input" accept="image/*" multiple hidden>
+<input type="file" id="foto-acao-input" accept="image/*" multiple hidden>
 <div class="dica-mapa" id="dica-mapa"></div>
 <div class="toast" id="toast"></div>
 

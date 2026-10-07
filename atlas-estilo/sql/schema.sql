@@ -111,6 +111,10 @@ CREATE INDEX IF NOT EXISTS idx_ponto_prefixo ON ponto_melhoria(prefixo);
 
 -- Linha do tempo de uma ação (ponto_melhoria): comentários de retorno e
 -- mudanças de status, para o Master acompanhar a cobrança.
+-- tipo: RETORNO (do responsável), COBRANCA (do Master), STATUS (mudança feita
+-- pelo Master), VERIFICACAO (conferência in loco). As demais colunas novas de
+-- ponto_melhoria e foto (cadência, verificação, antes/depois) entram pelo
+-- db/Migracoes.java para valer também em bancos já existentes.
 CREATE TABLE IF NOT EXISTS acao_atualizacao (
   id          INTEGER PRIMARY KEY AUTOINCREMENT,
   ponto_id    INTEGER NOT NULL,

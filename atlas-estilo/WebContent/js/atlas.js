@@ -908,7 +908,57 @@
     'Sinalização interna', 'Autoatendimento', 'Carteiras desbalanceadas',
     'Treinamento do portfólio', 'Sala de reunião', 'Iluminação', 'Limpeza', 'Estacionamento'];
   var MOVIMENTO = { VAZIA: 'vazia', NORMAL: 'movimento normal', CHEIA: 'cheia' };
-  var STATUS_ACAO = { ABERTO: 'aberta', EM_TRATATIVA: 'em tratativa', RESOLVIDO: 'concluída' };
+  var STATUS_ACAO = { ABERTO: 'aberta', EM_TRATATIVA: 'em tratativa', AGUARDANDO_VERIFICACAO: 'aguardando conferência', RESOLVIDO: 'concluída' };
+  var TIPO_ATU = { RETORNO: ['retorno', 'neutro'], COBRANCA: ['cobrança', 'ouro'], VERIFICACAO: ['conferência', 'verde'], STATUS: [null, null] };
+
+  /** Reduz a foto no navegador (lado maior 1600 px, JPEG 0,82); se não der, manda o original. */
+  function reduzirImagem(file, maxLado) {
+    maxLado = maxLado || 1600;
+    return new Promise(function (resolve) {
+      if (!file || !/^image\//.test(file.type) || /gif|svg/.test(file.type) || !window.HTMLCanvasElement) { resolve(file); return; }
+      var url = URL.createObjectURL(file), img = new Image();
+      var original = function () { URL.revokeObjectURL(url); resolve(file); };
+      img.onload = function () {
+        try {
+          var w = img.naturalWidth, h = img.naturalHeight, k = Math.min(1, maxLado / Math.max(w, h));
+          if (k >= 1 && file.size < 900 * 1024) { original(); return; }
+          var cv = document.createElement('canvas');
+          cv.width = Math.max(1, Math.round(w * k)); cv.height = Math.max(1, Math.round(h * k));
+          cv.getContext('2d').drawImage(img, 0, 0, cv.width, cv.height);
+          cv.toBlob(function (blob) {
+            URL.revokeObjectURL(url);
+            resolve(blob && blob.size < file.size ? blob : file);
+          }, 'image/jpeg', 0.82);
+        } catch (e) { original(); }
+      };
+      img.onerror = original;
+      img.src = url;
+    });
+  }
+
+  /** Envia fotos (reduzidas) para uma rota multipart; `extra` são campos de formulário. */
+  function enviarFotos(rota, arquivos, extra) {
+    var lista = [].slice.call(arquivos || []);
+    if (!lista.length) return Promise.resolve({ ok: false, gravadas: 0 });
+    return Promise.all(lista.map(function (f) { return reduzirImagem(f); })).then(function (blobs) {
+      var fd = new FormData();
+      Object.keys(extra || {}).forEach(function (k) { if (extra[k] != null) fd.append(k, extra[k]); });
+      blobs.forEach(function (b, i) {
+        var nome = (lista[i].name || 'foto').replace(/\.\w+$/, '') + (b.type === 'image/jpeg' ? '.jpg' : '');
+        fd.append('arquivo', b, nome);
+      });
+      return api(rota, { method: 'POST', body: fd });
+    });
+  }
+
+  /** Abre o seletor de arquivos e devolve os escolhidos (Promise). */
+  function escolherFotos(inputId) {
+    return new Promise(function (resolve) {
+      var input = $('#' + inputId);
+      input.onchange = function () { var fs = [].slice.call(this.files); this.value = ''; resolve(fs); };
+      input.click();
+    });
+  }
 
   function realizadas(d) {
     return (d.visitas || []).filter(function (v) { return v.status === 'REALIZADA'; })
@@ -1028,6 +1078,19 @@
         return '<button type="button" class="chip' + ((v.melhorias || []).indexOf(m) >= 0 ? ' ativo' : '') + '" data-m="' + esc(m) + '">' + esc(m) + '</button>';
       }).join('') + '<input type="text" id="fv-melhoria-outra" class="campo-input" placeholder="outro ponto… (Enter)" style="min-height:30px;padding:4px 10px;font-size:12.5px"></div></div>';
     h += '<div class="campo"><label>Minha percepção</label><textarea id="fv-percepcao" placeholder="o que vi, o que combinei, o que observar na próxima visita…">' + esc(v.percepcao || '') + '</textarea></div>';
+    // conferir in loco o que o responsável disse ter feito (ações aguardando verificação desta agência)
+    var aConferir = ((App.agencia && App.agencia.pontos) || []).filter(function (p) { return p.status === 'AGUARDANDO_VERIFICACAO'; });
+    if (aConferir.length) {
+      h += '<div class="campo"><label>Conferir · o responsável disse que fez; o que você viu?</label><div class="conferir" id="fv-conferir">' +
+        aConferir.map(function (p) {
+          return '<div class="item" data-conferir="' + p.id + '"><div><div class="desc">' + esc(p.descricao) + '</div><small>' +
+            (p.responsavel ? esc(p.responsavel) + ' · ' : '') + 'informou em ' + fmtData(p.informadoEm) +
+            (p.fotosDepois ? ' · 📷 ' + p.fotosDepois + ' foto(s) do depois' : '') + '</small></div>' +
+            '<div class="tri"><button type="button" data-r="CONFIRMADO">confirmei</button>' +
+            '<button type="button" data-r="NAO_FEITO">não estava feito</button>' +
+            '<button type="button" data-r="" class="sel">não conferi</button></div></div>';
+        }).join('') + '</div></div>';
+    }
     h += '<div class="campo"><label>Ações para dar retorno · caem na aba Ações com prazo e responsável</label>' +
       '<div class="linha-campos" style="gap:8px"><input type="text" id="fv-acao" class="campo-input" style="flex:2;min-width:180px" placeholder="ex.: cobrar engenharia sobre a fachada">' +
       '<input type="text" id="fv-acao-resp" class="campo-input" style="flex:1;min-width:120px" placeholder="responsável">' +
@@ -1127,6 +1190,7 @@
 
   function prazoBadge(p) {
     if (p.status === 'RESOLVIDO') return p.resolvidoEm ? '<span class="badge verde">concluída em ' + fmtData(p.resolvidoEm) + '</span>' : '';
+    if (p.status === 'AGUARDANDO_VERIFICACAO') return '<span class="badge info">informou que fez' + (p.informadoEm ? ' em ' + fmtData(p.informadoEm) : '') + '</span>';
     if (!p.previsao) return '<span class="badge neutro">sem prazo</span>';
     if (p.vencida) return '<span class="badge vinho">venceu em ' + fmtData(p.previsao) + '</span>';
     if (p.diasParaPrazo != null && p.diasParaPrazo <= 7) return '<span class="badge ambar">vence em ' + Math.max(0, Math.round(p.diasParaPrazo)) + ' dia(s)</span>';
@@ -1134,30 +1198,64 @@
   }
 
   /** Card de ação (na agência, na vista Ações e no planejamento). */
+  function fotosMiniHtml(p, momento) {
+    var fs = (p.fotos || []).filter(function (f) { return f.momento === momento; });
+    return fs.length
+      ? fs.map(function (f) { return '<img loading="lazy" src="' + CTX + '/foto/' + esc(f.id) + '" alt="" onclick="window.open(this.src)">'; }).join('')
+      : '<span class="vazia" title="sem foto">📷</span>';
+  }
+
   function acaoCardHtml(p, opts) {
     opts = opts || {};
     var aberta = p.status !== 'RESOLVIDO';
+    var aguardando = p.status === 'AGUARDANDO_VERIFICACAO';
+    var cad = (App.contexto && App.contexto.cadencia) || {};
     var h = '<div class="acao-card' + (p.vencida ? ' vencida' : '') + (aberta ? '' : ' resolvida') +
-      (opts.compacta ? ' compacta' : '') + '" data-ponto="' + p.id + '">';
+      (aguardando ? ' aguardando' : '') + (p.parada ? ' parada' : '') + (p.cobrarHoje ? ' cobrar' : '') +
+      (opts.compacta ? ' compacta' : '') + '" data-ponto="' + p.id + '" data-prefixo-acao="' + esc(p.prefixo || '') + '">';
     h += '<span class="prio ' + esc(p.prioridade || 'MEDIA') + '" title="prioridade ' + esc((p.prioridade || 'MEDIA').toLowerCase()) + '"></span>';
     h += '<div><div class="desc">' + esc(p.descricao) + '</div><div class="meta">' +
       (opts.comAgencia ? '<button class="botao mini claro" data-prefixo="' + esc(p.prefixo) + '">' + esc(p.agencia || p.prefixo) + '</button>' : '') +
-      '<span class="badge ' + (p.status === 'RESOLVIDO' ? 'verde' : p.status === 'EM_TRATATIVA' ? 'info' : 'ambar') + '">' + STATUS_ACAO[p.status] + '</span>' +
+      '<span class="badge ' + (p.status === 'RESOLVIDO' ? 'verde' : aguardando ? 'info' : p.status === 'EM_TRATATIVA' ? 'info' : 'ambar') + '">' + STATUS_ACAO[p.status] + '</span>' +
       prazoBadge(p) +
       (p.responsavel ? '<span>👤 ' + esc(p.responsavel) + '</span>' : '') +
+      (aberta && !aguardando && p.semRetornoDias != null && p.semRetornoDias >= 1
+        ? '<span class="' + (p.parada ? 'ambar' : '') + '">· sem retorno há ' + p.semRetornoDias + ' dia(s)' + (p.parada ? ' · parada' : '') + '</span>' : '') +
+      (p.cobradaHaDias != null && aberta ? '<span>· cobrada ' + (p.cobradaHaDias === 0 ? 'hoje' : 'há ' + p.cobradaHaDias + ' dia(s)') + (p.cobrancas > 1 ? ' (' + p.cobrancas + '×)' : '') + '</span>' : '') +
+      (p.reaberturas ? '<span class="badge vinho">reaberta ' + p.reaberturas + '×</span>' : '') +
+      (!aberta ? (p.comprovada ? '<span class="badge verde">comprovada' + (p.verificadoEm ? ' na visita' : ' com foto') + '</span>' : '<span class="badge neutro">sem prova</span>') : '') +
+      (opts.compacta && (p.fotosAntes || p.fotosDepois) ? '<span>· 📷 antes ' + (p.fotosAntes || 0) + ' · depois ' + (p.fotosDepois || 0) + '</span>' : '') +
       (p.visitaId ? '<span>· origem: visita</span>' : '') +
-      (p.atualizacoes ? '<span>· ' + p.atualizacoes + ' retorno(s)</span>' : '') +
+      (p.atualizacoes ? '<span>· ' + p.atualizacoes + ' registro(s)</span>' : '') +
       (p.solucao ? '<span>· solução: ' + esc(p.solucao) + '</span>' : '') + '</div></div>';
     h += '<span class="acoes-nota">' +
-      (aberta && p.status === 'ABERTO' ? '<button class="botao mini claro" data-acao="tratar">em tratativa</button>' : '') +
-      (aberta ? '<button class="botao mini primario" data-acao="resolver">concluir</button>' : '<button class="botao mini claro" data-acao="reabrir">reabrir</button>') +
+      (aguardando
+        ? '<button class="botao mini primario" data-acao="confirmar" title="vi na agência: está feito">confirmei</button>' +
+          '<button class="botao mini perigo" data-acao="nao-feito" title="vi na agência: não estava feito">não estava feito</button>'
+        : aberta
+          ? (p.status === 'ABERTO' ? '<button class="botao mini claro" data-acao="tratar">em tratativa</button>' : '') +
+            '<button class="botao mini claro" data-acao="informou" title="o responsável avisou que fez; conferir na próxima visita">informou que fez</button>' +
+            '<button class="botao mini primario" data-acao="resolver">concluir</button>'
+          : '<button class="botao mini claro" data-acao="reabrir">reabrir</button>') +
       (p.atualizacoes ? '<button class="botao mini claro" data-acao="historico">histórico</button>' : '') +
       '<button class="botao mini perigo" data-acao="excluir-ponto">excluir</button></span>';
-    if (aberta && !opts.compacta) {
-      h += '<div class="retorno"><input type="text" placeholder="registrar retorno / cobrança…" data-campo="retorno">' +
-        '<select data-campo="status-novo"><option value="">manter status</option><option value="EM_TRATATIVA">→ em tratativa</option><option value="RESOLVIDO">→ concluída</option></select>' +
-        '<button class="botao mini claro" data-acao="retorno-enviar" type="button">enviar</button></div>';
+    if (!opts.compacta) {
+      h += '<div class="fotos-par">' +
+        '<div class="lado"><div class="rotulo">Antes' + (aberta ? '<button class="botao mini claro" data-acao="foto-antes" type="button">+ foto</button>' : '') + '</div><div class="miniaturas">' + fotosMiniHtml(p, 'ANTES') + '</div></div>' +
+        '<div class="lado depois"><div class="rotulo">Depois<button class="botao mini claro" data-acao="foto-depois" type="button">+ foto</button></div><div class="miniaturas">' + fotosMiniHtml(p, 'DEPOIS') + '</div></div></div>';
     }
+    if (aberta && !aguardando && !opts.compacta) {
+      var dias = p.cadenciaDias || cad[p.prioridade] || 15, opcoes = [3, 7, 15, 30];
+      if (opcoes.indexOf(dias) < 0) { opcoes.push(dias); opcoes.sort(function (a, b) { return a - b; }); }
+      h += '<div class="retorno"><input type="text" placeholder="retorno do responsável ou o que você cobrou…" data-campo="retorno">' +
+        '<select data-campo="status-novo"><option value="">manter status</option><option value="EM_TRATATIVA">→ em tratativa</option>' +
+        '<option value="AGUARDANDO_VERIFICACAO">→ informou que fez</option><option value="RESOLVIDO">→ concluída</option></select>' +
+        '<button class="botao mini claro" data-acao="retorno-enviar" type="button" title="registrar retorno do responsável">retorno</button>' +
+        '<span class="cobranca"><select data-campo="adiar" title="quando cobrar de novo">' +
+        opcoes.map(function (d) { return '<option value="' + d + '"' + (d === dias ? ' selected' : '') + '>cobrar de novo em ' + d + ' dias</option>'; }).join('') +
+        '</select><button class="botao mini primario" data-acao="cobrei" type="button" title="registra a cobrança sem mexer no prazo">cobrei</button></span></div>';
+    }
+    h += '<div class="mini-form" data-mini hidden></div>';
     h += '<div class="timeline" data-timeline hidden></div>';
     return h + '</div>';
   }
@@ -1203,8 +1301,18 @@
     var prefixo = d.agencia.prefixo;
     var form = $('#fv-form');
     if (!form) return;
-    formVisita = { criterios: {}, melhorias: (v && v.melhorias ? v.melhorias.slice() : []), fotos: [], acoes: [], editando: v ? v.id : null };
+    formVisita = { criterios: {}, melhorias: (v && v.melhorias ? v.melhorias.slice() : []), fotos: [], acoes: [], conferencias: {}, editando: v ? v.id : null };
     CRITERIOS.forEach(function (c) { formVisita.criterios[c[0]] = v && v[c[0]] ? v[c[0]] : 0; });
+    $$('#fv-conferir .item', form).forEach(function (item) {
+      var pid = item.getAttribute('data-conferir');
+      $$('.tri button', item).forEach(function (b) {
+        b.addEventListener('click', function () {
+          $$('.tri button', item).forEach(function (x) { x.classList.toggle('sel', x === b); });
+          var r = b.getAttribute('data-r');
+          if (r) formVisita.conferencias[pid] = r; else delete formVisita.conferencias[pid];
+        });
+      });
+    });
     $('#fv-modo').textContent = v ? 'editando a visita de ' + fmtData(v.dataRealizada || v.dataPlanejada) : 'nova visita';
 
     $('#fv-status', form).addEventListener('change', function () {
@@ -1329,14 +1437,20 @@
           depois.push(post('ponto', { prefixo: prefixo, descricao: a.texto, previsao: a.prazo,
             responsavel: a.responsavel, prioridade: a.prioridade, visitaId: visitaId }));
         });
+        var conferidas = 0;
+        if (status !== 'PLANEJADA') {
+          Object.keys(formVisita.conferencias).forEach(function (pid) {
+            conferidas++;
+            depois.push(post('ponto/' + pid + '/verificar', { resultado: formVisita.conferencias[pid], visitaId: visitaId }));
+          });
+        }
         if (formVisita.fotos.length && status !== 'PLANEJADA') {
-          var fd = new FormData();
-          formVisita.fotos.forEach(function (f) { fd.append('arquivo', f); });
-          depois.push(api('visita/' + visitaId + '/foto', { method: 'POST', body: fd }));
+          depois.push(enviarFotos('visita/' + visitaId + '/foto', formVisita.fotos));
         }
         return Promise.all(depois).then(function () {
           toast(status === 'PLANEJADA' ? 'Visita agendada.' : 'Visita registrada ✓' +
-            (formVisita.acoes.length ? ' · ' + formVisita.acoes.length + ' ação(ões) na sua fila' : ''));
+            (formVisita.acoes.length ? ' · ' + formVisita.acoes.length + ' ação(ões) na sua fila' : '') +
+            (conferidas ? ' · ' + conferidas + ' conferida(s)' : ''));
           recarregar(prefixo); atualizarContadorAcoes();
         });
       }).catch(function (e) { btn.disabled = false; toast(e.message); });
@@ -1374,16 +1488,12 @@
       post('visita/' + cartaoVisita.getAttribute('data-visita') + '/excluir', {})
         .then(function () { recarregar(prefixo); }).catch(falha);
     } else if (acao === 'foto-visita') {
-      var input = $('#foto-visita-input');
-      input.onchange = function () {
-        if (!this.files.length) return;
-        var fd = new FormData();
-        [].slice.call(this.files).forEach(function (f) { fd.append('arquivo', f); });
-        this.value = '';
-        api('visita/' + cartaoVisita.getAttribute('data-visita') + '/foto', { method: 'POST', body: fd })
-          .then(function (r) { toast(r.gravadas + ' foto(s) guardada(s).'); recarregar(prefixo); }).catch(falha);
-      };
-      input.click();
+      escolherFotos('foto-visita-input').then(function (fs) {
+        if (!fs.length) return;
+        toast('Enviando foto(s)…');
+        return enviarFotos('visita/' + cartaoVisita.getAttribute('data-visita') + '/foto', fs)
+          .then(function (r) { toast(r.gravadas + ' foto(s) guardada(s).'); recarregar(prefixo); });
+      }).catch(falha);
     } else if (acao === 'fixar') {
       post('anotacao/' + nota.getAttribute('data-anotacao'), { fixada: nota.classList.contains('fixada') ? '0' : '1' })
         .then(function () { recarregar(prefixo); }).catch(falha);
@@ -1396,27 +1506,87 @@
   }
 
   /** Botões de um card de ação (compartilhado pela agência e pela vista Ações). */
+  /** Mini-formulário dentro do card (concluir com prova / informou que fez). */
+  function abrirMiniForm(cartao, modo) {
+    var mini = $('[data-mini]', cartao);
+    cartao._fotosMini = [];
+    var concluir = modo === 'resolver';
+    mini.innerHTML =
+      '<label class="rotulo" style="margin:0">' + (concluir ? 'O que foi feito / solução' : 'O que o responsável informou') + '</label>' +
+      '<textarea data-campo="mini-texto" placeholder="' + (concluir ? 'ex.: letreiro trocado pela engenharia em 12/10' : 'ex.: gerente avisou que a fachada foi pintada') + '"></textarea>' +
+      '<div class="linha"><button class="botao mini claro" type="button" data-acao="mini-foto">📷 foto do depois</button>' +
+      '<span class="foto-pendente" data-mini-fotos></span><span style="flex:1"></span>' +
+      '<button class="botao mini claro" type="button" data-acao="mini-cancelar">cancelar</button>' +
+      '<button class="botao mini primario" type="button" data-acao="' + (concluir ? 'resolver-enviar' : 'informou-enviar') + '">' +
+      (concluir ? 'Concluir' : 'Registrar · conferir na próxima visita') + '</button></div>';
+    mini.hidden = false;
+    $('[data-campo="mini-texto"]', mini).focus();
+  }
+
+  function renderFotosMini(cartao) {
+    var alvo = $('[data-mini-fotos]', cartao);
+    if (!alvo) return;
+    alvo.innerHTML = (cartao._fotosMini || []).map(function (f) {
+      return '<img alt="" src="' + URL.createObjectURL(f) + '">';
+    }).join('') + ((cartao._fotosMini || []).length ? '<span>' + cartao._fotosMini.length + ' foto(s)</span>' : '<span>opcional, mas é a prova</span>');
+  }
+
+  /** Botões de um card de ação (compartilhado pela agência, pela vista Ações e pelo planejamento). */
   function tratarAcaoCard(acao, cartao, depois) {
     var id = cartao.getAttribute('data-ponto');
     var falha = function (e) { toast(e.message); };
+    var subirFotosMini = function (momento) {
+      return (cartao._fotosMini || []).length ? enviarFotos('ponto/' + id + '/foto', cartao._fotosMini, { momento: momento }) : Promise.resolve();
+    };
     if (acao === 'tratar') {
-      post('ponto/' + id + '/comentar', { status: 'EM_TRATATIVA', texto: 'Tratativa iniciada' }).then(depois).catch(falha);
-    } else if (acao === 'resolver') {
-      var sol = prompt('O que foi feito / qual foi a solução?');
-      if (sol == null) return;
-      post('ponto/' + id, { status: 'RESOLVIDO', solucao: sol }).then(function () {
-        return post('ponto/' + id + '/comentar', { texto: 'Concluída: ' + sol });
-      }).then(function () { toast('Ação concluída ✓'); depois(); }).catch(falha);
+      post('ponto/' + id + '/comentar', { status: 'EM_TRATATIVA', texto: 'Tratativa iniciada', tipo: 'STATUS' }).then(depois).catch(falha);
     } else if (acao === 'reabrir') {
-      post('ponto/' + id + '/comentar', { status: 'ABERTO', texto: 'Reaberta' }).then(depois).catch(falha);
+      post('ponto/' + id + '/comentar', { status: 'ABERTO', texto: 'Reaberta', tipo: 'STATUS' }).then(depois).catch(falha);
+    } else if (acao === 'resolver' || acao === 'informou') {
+      abrirMiniForm(cartao, acao);
+    } else if (acao === 'mini-cancelar') {
+      $('[data-mini]', cartao).hidden = true;
+    } else if (acao === 'mini-foto') {
+      escolherFotos('foto-acao-input').then(function (fs) {
+        cartao._fotosMini = (cartao._fotosMini || []).concat(fs).slice(0, 6);
+        renderFotosMini(cartao);
+      });
+    } else if (acao === 'resolver-enviar') {
+      var sol = $('[data-campo="mini-texto"]', cartao).value.trim();
+      if (!sol) { toast('Diga o que foi feito.'); return; }
+      post('ponto/' + id, { status: 'RESOLVIDO', solucao: sol }).then(function () {
+        return post('ponto/' + id + '/comentar', { texto: 'Concluída: ' + sol, tipo: 'STATUS' });
+      }).then(function () { return subirFotosMini('DEPOIS'); })
+        .then(function () { toast('Ação concluída ✓'); depois(); }).catch(falha);
+    } else if (acao === 'informou-enviar') {
+      var inf = $('[data-campo="mini-texto"]', cartao).value.trim();
+      post('ponto/' + id + '/comentar', { status: 'AGUARDANDO_VERIFICACAO', texto: inf || 'Responsável informou que fez', tipo: 'RETORNO' })
+        .then(function () { return subirFotosMini('DEPOIS'); })
+        .then(function () { toast('Anotado · entra em "a conferir" na próxima visita.'); depois(); }).catch(falha);
+    } else if (acao === 'confirmar' || acao === 'nao-feito') {
+      post('ponto/' + id + '/verificar', { resultado: acao === 'confirmar' ? 'CONFIRMADO' : 'NAO_FEITO' })
+        .then(function () { toast(acao === 'confirmar' ? 'Conferida e concluída ✓' : 'Reaberta: não estava feito.'); depois(); }).catch(falha);
+    } else if (acao === 'foto-antes' || acao === 'foto-depois') {
+      var momento = acao === 'foto-antes' ? 'ANTES' : 'DEPOIS';
+      escolherFotos('foto-acao-input').then(function (fs) {
+        if (!fs.length) return;
+        toast('Enviando foto(s)…');
+        return enviarFotos('ponto/' + id + '/foto', fs, { momento: momento })
+          .then(function (r) { toast(r.gravadas + ' foto(s) do ' + momento.toLowerCase() + ' guardada(s).'); depois(); });
+      }).catch(falha);
+    } else if (acao === 'cobrei') {
+      var txtC = $('[data-campo="retorno"]', cartao).value.trim();
+      var adiar = $('[data-campo="adiar"]', cartao).value;
+      post('ponto/' + id + '/comentar', { tipo: 'COBRANCA', texto: txtC || 'Cobrança feita', adiar: adiar })
+        .then(function () { toast('Cobrança registrada · próxima em ' + adiar + ' dias.'); depois(); }).catch(falha);
     } else if (acao === 'excluir-ponto') {
-      if (!confirm('Excluir esta ação e seu histórico?')) return;
+      if (!confirm('Excluir esta ação, seu histórico e suas fotos?')) return;
       post('ponto/' + id + '/excluir', {}).then(depois).catch(falha);
     } else if (acao === 'retorno-enviar') {
       var txt = $('[data-campo="retorno"]', cartao).value.trim();
       var st = $('[data-campo="status-novo"]', cartao).value;
       if (!txt && !st) { toast('Escreva o retorno ou escolha o novo status.'); return; }
-      post('ponto/' + id + '/comentar', { texto: txt || null, status: st || null })
+      post('ponto/' + id + '/comentar', { texto: txt || null, status: st || null, tipo: 'RETORNO' })
         .then(function () { toast('Retorno registrado.'); depois(); }).catch(falha);
     } else if (acao === 'historico') {
       var tl = $('[data-timeline]', cartao);
@@ -1425,20 +1595,27 @@
       tl.innerHTML = '<div class="ev">carregando…</div>';
       api('ponto/' + id + '/atualizacoes').then(function (lista) {
         tl.innerHTML = lista.length ? lista.map(function (u) {
+          var t = TIPO_ATU[u.tipo] || TIPO_ATU.RETORNO;
           return '<div class="ev"><small>' + fmtData(u.criadoEm) + ' · ' + esc(u.criadoPor || '') + '</small>' +
-            (u.statusNovo ? '<span class="badge ' + (u.statusNovo === 'RESOLVIDO' ? 'verde' : 'info') + '" style="margin-right:6px">' + STATUS_ACAO[u.statusNovo] + '</span>' : '') +
+            (t[0] ? '<span class="badge ' + (u.tipo === 'VERIFICACAO' && u.statusNovo === 'ABERTO' ? 'vinho' : t[1]) + '" style="margin-right:6px">' + t[0] + '</span>' : '') +
+            (u.statusNovo ? '<span class="badge ' + (u.statusNovo === 'RESOLVIDO' ? 'verde' : u.statusNovo === 'ABERTO' ? 'ambar' : 'info') + '" style="margin-right:6px">' + STATUS_ACAO[u.statusNovo] + '</span>' : '') +
             esc(u.texto || '') + '</div>';
-        }).join('') : '<div class="ev">Sem retornos registrados.</div>';
+        }).join('') : '<div class="ev">Sem registros.</div>';
       }).catch(falha);
     }
   }
 
+  /** Contador do menu e do filtro "Cobrar hoje" (o que pede ação sua agora). */
   function atualizarContadorAcoes() {
     var alvo = $('#nav-acoes-n');
     if (!alvo || !App.contexto || !App.contexto.master) return;
-    api('acoes?status=PENDENTES').then(function (lista) {
-      alvo.textContent = lista.length;
-      alvo.hidden = !lista.length;
+    api('hoje').then(function (h) {
+      App.hoje = h;
+      alvo.textContent = h.cobrarHoje;
+      alvo.hidden = !h.cobrarHoje;
+      alvo.title = h.cobrarHoje + ' ação(ões) para cobrar hoje · ' + h.vencidas + ' vencida(s) · ' + h.aConferir + ' a conferir';
+      var seg = $('#acoes-n-cobrar');
+      if (seg) { seg.textContent = h.cobrarHoje; seg.hidden = !h.cobrarHoje; }
     }).catch(function () { /* silencioso */ });
   }
 
@@ -1572,13 +1749,19 @@
         p.planejadas.length + ' planejada(s) · ' + k.acoesVencidas + ' ação(ões) vencida(s)';
       var h = '';
 
+      var cad = p.cadencia || {};
       h += '<div class="cartao largo"><div class="cartao-corpo"><div class="kpis">' +
         kpi(k.visitadas + '/' + k.total, 'agências visitadas', 'destaque') +
         kpi(k.visitas90, 'visitas · 90 dias') +
         kpi(k.notaMedia != null ? k.notaMedia.toLocaleString('pt-BR', { maximumFractionDigits: 1 }) : '—', 'nota média das visitas') +
         kpi(k.agendaSemana, 'planejadas esta semana') +
-        kpi(k.acoesAbertas, 'ações em aberto') +
+        kpi(k.cobrarHoje || 0, 'cobrar hoje', k.cobrarHoje ? 'critico' : 'ok') +
         kpi(k.acoesVencidas, 'ações vencidas', k.acoesVencidas ? 'critico' : 'ok') +
+        kpi(k.paradas || 0, 'paradas · sem retorno há ' + (cad.parada || 14) + '+ dias', k.paradas ? 'atencao' : 'ok') +
+        kpi(k.aguardando || 0, 'a conferir na próxima visita') +
+        kpi(k.fechamentoComprovadoPct != null ? k.fechamentoComprovadoPct + '%' : '—',
+          'fechamento comprovado · ' + (k.comprovadas180 || 0) + ' de ' + (k.concluidas180 || 0) + ' em 180 dias',
+          k.fechamentoComprovadoPct == null ? '' : k.fechamentoComprovadoPct >= 70 ? 'ok' : k.fechamentoComprovadoPct >= 40 ? 'atencao' : 'critico') +
         '</div></div></div>';
 
       // esta semana + atrasadas
@@ -1593,16 +1776,20 @@
       });
       h += '</div></div></div>';
 
-      h += '<div class="cartao"><div class="cartao-corpo"><h3>Ações vencidas <span class="badge ' +
-        (p.pontosEstourados.length ? 'vinho' : 'verde') + '">' + p.pontosEstourados.length + '</span></h3><div class="fila">';
-      if (!p.pontosEstourados.length) h += '<div class="vazio">Nenhum prazo vencido. ✓</div>';
-      p.pontosEstourados.forEach(function (a) { h += acaoCardHtml(a, { compacta: true, comAgencia: true }); });
+      // cobrar hoje: lista única priorizada (vencidas, paradas, cadência vencida, por prioridade)
+      var cobrar = p.cobrarHoje || [];
+      h += '<div class="cartao"><div class="cartao-corpo"><h3>Cobrar hoje <span class="badge ' + (cobrar.length ? 'vinho' : 'verde') + '">' + cobrar.length + '</span></h3>' +
+        '<p class="rotulo" style="margin:-4px 0 8px">vencidas · paradas · cadência (alta ' + (cad.ALTA || 7) + ' · média ' + (cad.MEDIA || 15) + ' · baixa ' + (cad.BAIXA || 30) + ' dias)</p><div class="fila">';
+      if (!cobrar.length) h += '<div class="vazio">Nada para cobrar hoje. ✓</div>';
+      cobrar.forEach(function (a) { h += acaoCardHtml(a, { compacta: true, comAgencia: true }); });
       h += '</div></div></div>';
 
-      h += '<div class="cartao"><div class="cartao-corpo"><h3>Vencem em 7 dias <span class="badge ' +
-        (p.acoesVencendo.length ? 'ambar' : 'neutro') + '">' + p.acoesVencendo.length + '</span></h3><div class="fila">';
-      if (!p.acoesVencendo.length) h += '<div class="vazio">Nada vence nos próximos 7 dias.</div>';
-      p.acoesVencendo.forEach(function (a) { h += acaoCardHtml(a, { compacta: true, comAgencia: true }); });
+      // a conferir na próxima visita
+      var conferir = p.aConferir || [];
+      h += '<div class="cartao"><div class="cartao-corpo"><h3>A conferir na próxima visita <span class="badge ' + (conferir.length ? 'info' : 'neutro') + '">' + conferir.length + '</span></h3>' +
+        '<p class="rotulo" style="margin:-4px 0 8px">o responsável disse que fez · confirme na agência ou pela foto</p><div class="fila">';
+      if (!conferir.length) h += '<div class="vazio">Nada aguardando conferência.</div>';
+      conferir.forEach(function (a) { h += acaoCardHtml(a, { compacta: true, comAgencia: true }); });
       h += '</div></div></div>';
 
       h += '<div class="cartao"><div class="cartao-corpo"><h3>Fila de visitas <span class="badge ouro">' + p.naoVisitadas.length + '</span></h3>' +
@@ -1708,9 +1895,11 @@
   function carregarAcoes() {
     var alvo = $('#grade-acoes');
     alvo.innerHTML = '<div class="carregando">Carregando…</div>';
-    var q = [];
-    if (filtroAcoes.chave === 'PENDENTES' || filtroAcoes.chave === 'RESOLVIDO') q.push('status=' + filtroAcoes.chave);
-    if (filtroAcoes.chave === 'VENCIDAS' || filtroAcoes.chave === '7DIAS') q.push('prazo=' + filtroAcoes.chave);
+    var q = [], ch = filtroAcoes.chave;
+    if (ch === 'PENDENTES' || ch === 'RESOLVIDO') q.push('status=' + ch);
+    if (ch === 'VENCIDAS' || ch === '7DIAS' || ch === 'COBRAR' || ch === 'PARADAS') q.push('prazo=' + ch);
+    if (ch === 'AGUARDANDO') q.push('status=AGUARDANDO_VERIFICACAO');
+    if (ch === 'SEMPROVA') { q.push('status=RESOLVIDO'); q.push('prova=SEM'); }
     if (filtroAcoes.prioridade) q.push('prioridade=' + filtroAcoes.prioridade);
     if (filtroAcoes.regional) q.push('regional=' + encodeURIComponent(filtroAcoes.regional));
     api('acoes' + (q.length ? '?' + q.join('&') : '')).then(function (lista) {
@@ -1719,8 +1908,15 @@
         return ((a.descricao || '') + ' ' + (a.agencia || '') + ' ' + (a.responsavel || '') + ' ' + (a.solucao || '')).toLowerCase().indexOf(t) >= 0;
       });
       var vencidas = lista.filter(function (a) { return a.vencida; }).length;
-      $('#acoes-resumo').textContent = lista.length + ' ação(ões)' + (vencidas ? ' · ' + vencidas + ' vencida(s)' : '');
-      if (!lista.length) { alvo.innerHTML = '<div class="vazio">Nenhuma ação neste filtro.</div>'; return; }
+      var paradas = lista.filter(function (a) { return a.parada; }).length;
+      var cobrar = lista.filter(function (a) { return a.cobrarHoje; }).length;
+      $('#acoes-resumo').textContent = lista.length + ' ação(ões)' + (vencidas ? ' · ' + vencidas + ' vencida(s)' : '') +
+        (paradas ? ' · ' + paradas + ' parada(s)' : '') + (cobrar && ch !== 'COBRAR' ? ' · ' + cobrar + ' para cobrar hoje' : '');
+      if (!lista.length) {
+        alvo.innerHTML = '<div class="vazio">' + (ch === 'COBRAR' ? 'Nada para cobrar hoje. ✓' : ch === 'AGUARDANDO' ? 'Nada aguardando conferência.'
+          : ch === 'SEMPROVA' ? 'Toda conclusão tem prova. ✓' : 'Nenhuma ação neste filtro.') + '</div>';
+        return;
+      }
       // agrupa por agência para a cobrança ficar organizada
       var grupos = {};
       lista.forEach(function (a) { (grupos[a.prefixo] = grupos[a.prefixo] || { nome: a.agencia, itens: [] }).itens.push(a); });
@@ -1812,6 +2008,9 @@
     var h = (location.hash || '#mapa').replace('#', '');
     if ((h === 'planejamento' || h === 'acoes') && !(App.contexto && App.contexto.master)) h = 'mapa';
     if (!TITULOS[h]) h = 'mapa';
+    // trocar de vista fecha o que estava sobreposto (drawer da agência, dashboard da porta)
+    if ($('#painel-dash').classList.contains('aberto')) fecharDash();
+    if ($('#drawer-agencia').classList.contains('aberto')) fecharAgencia();
     $('#vista-mapa').classList.toggle('ativa', h === 'mapa');
     $('#vista-planejamento').classList.toggle('ativa', h === 'planejamento');
     $('#vista-acoes').classList.toggle('ativa', h === 'acoes');
@@ -1827,6 +2026,52 @@
   function atualizarSubtitulo(texto) {
     var el = $('#topo-sub');
     if (el) el.innerHTML = '<span class="pulso"></span>' + esc(texto);
+  }
+
+  /** Vista Ações já no filtro "Cobrar hoje". */
+  function irParaCobrancas() {
+    filtroAcoes.chave = 'COBRAR';
+    $$('#acoes-status button').forEach(function (x) { x.classList.toggle('ativo', x.getAttribute('data-v') === 'COBRAR'); });
+    if ((location.hash || '#mapa') === '#acoes') carregarAcoes(); else location.hash = '#acoes';
+  }
+
+  /** Aviso do dia na abertura (só Master): o que pede sua ação hoje. Fecha por hoje. */
+  function mostrarAvisoDoDia() {
+    if (!App.contexto || !App.contexto.master) return;
+    var chave = 'atlas.aviso.' + isoLocal(Date.now()), fechado = null;
+    try { fechado = localStorage.getItem(chave); } catch (e) { /* sem storage */ }
+    if (fechado) return;
+    api('hoje').then(function (h) {
+      App.hoje = h;
+      var itens = [];
+      if (h.cobrarHoje) itens.push('<b>' + h.cobrarHoje + '</b> cobrança(s) para hoje');
+      if (h.vencidas) itens.push('<b>' + h.vencidas + '</b> vencida(s)');
+      if (h.paradas) itens.push('<b>' + h.paradas + '</b> parada(s) sem retorno');
+      if (h.aConferir) itens.push('<b>' + h.aConferir + '</b> a conferir na próxima visita');
+      if (h.visitasHoje) itens.push('<b>' + h.visitasHoje + '</b> visita(s) planejada(s) para hoje');
+      if (h.visitasAtrasadas) itens.push('<b>' + h.visitasAtrasadas + '</b> visita(s) planejada(s) atrasada(s)');
+      if (!itens.length) return;
+      var vista = $('#vista-mapa');
+      if (!vista || $('#aviso-dia')) return;
+      var el = document.createElement('div');
+      el.className = 'aviso-dia'; el.id = 'aviso-dia';
+      el.innerHTML = '<span class="pulso"></span><div class="itens"><b>Hoje</b>' +
+        itens.map(function (i) { return '<span>' + i + '</span>'; }).join('') + '</div>' +
+        '<div class="acoes">' + (h.cobrarHoje ? '<button class="botao mini claro" type="button" data-ir="cobrar">Ver cobranças</button>' : '') +
+        '<button class="botao mini claro" type="button" data-ir="planejamento">Minha gestão</button>' +
+        '<button class="fechar" type="button" title="fechar por hoje" aria-label="fechar">×</button></div>';
+      vista.insertBefore(el, vista.firstChild);
+      el.addEventListener('click', function (ev) {
+        var b = ev.target.closest('button');
+        if (!b) return;
+        if (b.classList.contains('fechar')) {
+          try { localStorage.setItem(chave, '1'); } catch (e) { /* sem storage */ }
+          el.remove();
+          return;
+        }
+        if (b.getAttribute('data-ir') === 'cobrar') irParaCobrancas(); else location.hash = '#planejamento';
+      });
+    }).catch(function () { /* silencioso */ });
   }
 
   // ------------------------------------------------------------------ boot
@@ -1845,7 +2090,7 @@
       desenharMapa();
       carregarPainel({});
       ligarBusca();
-      if (App.contexto.master) { ligarAcoes(); atualizarContadorAcoes(); }
+      if (App.contexto.master) { ligarAcoes(); atualizarContadorAcoes(); mostrarAvisoDoDia(); }
       trocarVista();
       atualizarSubtitulo((App.contexto.regionalJurisdicao || 'Super Nacional Estilo') + ' · ' +
         App.mapa.agencias.length + ' agência(s)' + (App.contexto.master ? '' : ' · visão ' + App.contexto.perfil.toLowerCase()));

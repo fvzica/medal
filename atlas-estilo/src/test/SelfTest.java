@@ -295,6 +295,89 @@ public final class SelfTest {
         verifica("ação reprogramada vence em 30 dias", acoes.contains("\"responsavel\":\"Ger. Adm\"")
                 && acoes.contains("\"vencida\":false"));
 
+        // ------------------------------------ cadência de cobrança e ações paradas
+        GestaoDao.Cadencia cad = GestaoDao.cadencia();
+        verifica("cadência padrão", cad.alta == 7 && cad.media == 15 && cad.baixa == 30 && cad.parada == 14
+                && cad.json().contains("\"ALTA\":7"));
+        long idCob = GestaoDao.pontoCriar("9102", "Trocar ar-condicionado da sala Estilo", agora + 20 * dia,
+                "F3548926", agora - 10 * dia, null, "Ger. Adm", "ALTA");
+        String cob = objetoDe(GestaoDao.acoes("9102", "PENDENTES", null, null, null, agora), "\"id\":" + idCob + ",");
+        verifica("ALTA sem retorno há 10 dias entra em Cobrar hoje", cob.contains("\"semRetornoDias\":10")
+                && cob.contains("\"cobrarHoje\":true") && cob.contains("\"parada\":false")
+                && cob.contains("\"vencida\":false") && cob.contains("\"cadenciaDias\":7"));
+        verifica("filtro COBRAR traz a ação", GestaoDao.acoes(null, null, "COBRAR", null, null, agora)
+                .contains("\"id\":" + idCob + ","));
+        long idRetCob = GestaoDao.pontoComentar(idCob, "Cobrei o gerente por telefone", null, "F3548926", agora,
+                "COBRANCA", 7);
+        verifica("cobrança registrada", idRetCob > 0
+                && GestaoDao.atualizacoes(idCob).contains("\"tipo\":\"COBRANCA\""));
+        cob = objetoDe(GestaoDao.acoes("9102", "PENDENTES", null, null, null, agora), "\"id\":" + idCob + ",");
+        verifica("cobrança adia a próxima e não zera o sem retorno", cob.contains("\"cobrarHoje\":false")
+                && cob.contains("\"cobrancas\":1") && cob.contains("\"cobradaHaDias\":0")
+                && cob.contains("\"semRetornoDias\":10") && cob.contains("\"proximaCobranca\":" + (agora + 7 * dia)));
+        verifica("filtro COBRAR não traz mais a ação", !GestaoDao.acoes(null, null, "COBRAR", null, null, agora)
+                .contains("\"id\":" + idCob + ","));
+        GestaoDao.pontoComentar(idCob, "Gerente respondeu: orçamento aprovado", null, "F3548926", agora + 1000);
+        cob = objetoDe(GestaoDao.acoes("9102", "PENDENTES", null, null, null, agora + 2000), "\"id\":" + idCob + ",");
+        verifica("retorno reinicia o relógio pela cadência", cob.contains("\"semRetornoDias\":0")
+                && cob.contains("\"cobrarHoje\":false") && cob.contains("\"proximaCobranca\":" + (agora + 1000 + 7 * dia)));
+        long idParada = GestaoDao.pontoCriar("9102", "Repor cadeiras da sala de espera", null,
+                "F3548926", agora - 20 * dia, null, null, "MEDIA");
+        String par = objetoDe(GestaoDao.acoes("9102", "PENDENTES", null, null, null, agora), "\"id\":" + idParada + ",");
+        verifica("MÉDIA sem retorno há 20 dias está parada e a cobrar", par.contains("\"parada\":true")
+                && par.contains("\"cobrarHoje\":true"));
+        verifica("filtro PARADAS", GestaoDao.acoes(null, null, "PARADAS", null, null, agora).contains("\"id\":" + idParada + ",")
+                && !GestaoDao.acoes(null, null, "PARADAS", null, null, agora).contains("\"id\":" + idCob + ","));
+        GestaoDao.cadenciaDefinir(3, 5, 10, 30, "F3548926", agora);
+        cad = GestaoDao.cadencia();
+        verifica("cadência ajustável no admin", cad.alta == 3 && cad.media == 5 && cad.baixa == 10 && cad.parada == 30);
+        par = objetoDe(GestaoDao.acoes("9102", "PENDENTES", null, null, null, agora), "\"id\":" + idParada + ",");
+        verifica("limite de parada maior tira a ação de paradas", par.contains("\"parada\":false")
+                && par.contains("\"cobrarHoje\":true"));
+        GestaoDao.cadenciaDefinir(7, 15, 30, 14, "F3548926", agora);
+        verifica("cadência restaurada", GestaoDao.cadencia().alta == 7);
+        verifica("tipo de atualização inválido vira RETORNO", "RETORNO".equals(GestaoDao.tipoAtualizacaoValido("X"))
+                && "STATUS".equals(GestaoDao.tipoAtualizacaoValido("STATUS")));
+
+        // -------------------------- fechamento comprovado: informou que fez + conferência
+        long idVer = GestaoDao.pontoCriar("9102", "Consertar porta giratória", agora - dia,
+                "F3548926", agora - 5 * dia, null, "Ger. Geral", "ALTA");
+        String ver = objetoDe(GestaoDao.acoes("9102", "PENDENTES", null, null, null, agora), "\"id\":" + idVer + ",");
+        verifica("ação vencida antes do aviso", ver.contains("\"vencida\":true"));
+        GestaoDao.pontoComentar(idVer, "Gerente avisou que a porta foi consertada", GestaoDao.ST_AGUARDANDO,
+                "F3548926", agora, "RETORNO", null);
+        br.com.bb.atlasestilo.dao.FotoDao.inserir("foto-acao-1", "9102", null, "ACAO", "Depois · porta",
+                "foto-acao-1.jpg", "image/jpeg", "F3548926", agora, null, true, idVer, "DEPOIS");
+        ver = objetoDe(GestaoDao.acoes("9102", GestaoDao.ST_AGUARDANDO, null, null, null, agora), "\"id\":" + idVer + ",");
+        verifica("aguardando conferência não conta como vencida", ver.contains("\"aguardando\":true")
+                && ver.contains("\"vencida\":false") && ver.contains("\"informadoEm\":" + agora)
+                && ver.contains("\"cobrarHoje\":false"));
+        verifica("foto do depois ligada à ação", ver.contains("\"fotosDepois\":1")
+                && ver.contains("\"momento\":\"DEPOIS\"") && ver.contains("foto-acao-1"));
+        verifica("VENCIDAS ignora quem aguarda conferência", !GestaoDao.acoes("9102", null, "VENCIDAS", null, null, agora)
+                .contains("\"id\":" + idVer + ","));
+        verifica("não estava feito reabre e conta", GestaoDao.pontoVerificar(idVer, false, null, null, "F3548926", agora + 10));
+        ver = objetoDe(GestaoDao.acoes("9102", "PENDENTES", null, null, null, agora + 10), "\"id\":" + idVer + ",");
+        verifica("ação reaberta volta a vencida", ver.contains("\"status\":\"ABERTO\"") && ver.contains("\"reaberturas\":1")
+                && ver.contains("\"vencida\":true") && ver.contains("\"informadoEm\":null"));
+        GestaoDao.pontoComentar(idVer, "Agora foi mesmo", GestaoDao.ST_AGUARDANDO, "F3548926", agora + 20, "RETORNO", null);
+        verifica("confirmei conclui com a visita como prova", GestaoDao.pontoVerificar(idVer, true, idVisitaAnterior,
+                "Conferi na visita: porta funcionando", "F3548926", agora + 30));
+        ver = objetoDe(GestaoDao.acoes("9102", "RESOLVIDO", null, null, null, agora + 40), "\"id\":" + idVer + ",");
+        verifica("ação verificada está concluída e comprovada", ver.contains("\"verificadoEm\":" + (agora + 30))
+                && ver.contains("\"verificadoVisitaId\":" + idVisitaAnterior) && ver.contains("\"comprovada\":true")
+                && ver.contains("porta funcionando"));
+        verifica("linha do tempo registra a conferência", GestaoDao.atualizacoes(idVer).contains("\"tipo\":\"VERIFICACAO\""));
+        String semProva = GestaoDao.acoes(null, "RESOLVIDO", null, null, null, "SEM", agora + 40);
+        verifica("filtro sem prova lista só concluídas sem foto do depois", semProva.contains("Teste de ponto")
+                && !semProva.contains("\"id\":" + idVer + ","));
+        List<String> arqAcao = br.com.bb.atlasestilo.dao.FotoDao.excluirDaAcao(idVer);
+        verifica("fotos da ação removíveis", arqAcao.size() == 1 && arqAcao.get(0).equals("foto-acao-1.jpg"));
+
+        String dia1 = GestaoDao.resumoDoDia(agora);
+        verifica("resumo do dia", dia1.contains("\"cobrarHoje\":") && dia1.contains("\"paradas\":")
+                && dia1.contains("\"aConferir\":") && dia1.contains("\"visitasHoje\":"));
+
         // planejamento: KPIs, agenda e evolução
         String plan = GestaoDao.planejamento(agora);
         verifica("planejamento traz KPIs", plan.contains("\"kpis\":{") && plan.contains("\"acoesAbertas\":")
@@ -302,6 +385,10 @@ public final class SelfTest {
                 && plan.contains("\"agendaSemana\":"));
         verifica("planejamento traz evolução, frias e vencendo", plan.contains("\"evolucao\":[")
                 && plan.contains("\"frias\":[") && plan.contains("\"acoesVencendo\":["));
+        verifica("planejamento traz cobrar hoje, a conferir e fechamento comprovado",
+                plan.contains("\"cobrarHoje\":[") && plan.contains("\"aConferir\":[")
+                && plan.contains("\"fechamentoComprovadoPct\":") && plan.contains("\"paradas\":")
+                && plan.contains("\"cadencia\":{"));
 
         // exports CSV
         String csvV = GestaoDao.csvVisitas();
@@ -309,7 +396,8 @@ public final class SelfTest {
                 && csvV.contains("Fachada | Sala Estilo") && csvV.contains("CHEIA"));
         String csvA = GestaoDao.csvAcoes(agora);
         verifica("CSV de ações", csvA.startsWith("id;prefixo;") && csvA.contains("Trocar letreiro")
-                && csvA.contains("no prazo") && csvA.contains(";Ger. Adm;"));
+                && csvA.contains("no prazo") && csvA.contains(";Ger. Adm;")
+                && csvA.contains(";cobrancas;") && csvA.contains(";fotos_depois;") && csvA.contains("· cobrar"));
 
         // privacidade: só o Master enxerga visitas/ações nos agregados
         String mapaMaster = AgenciaDao.mapa(master);

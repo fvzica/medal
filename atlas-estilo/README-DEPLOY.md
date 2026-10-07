@@ -39,7 +39,7 @@ responde 403 para foto restrita. O front-end apenas esconde o que já não vem
 ./build.sh dev    # teste local SEM SSO (usuário simulado Master) -> dist/atlasestilo-dev.war
 ```
 
-Compila com `--release 8`, roda o SelfTest (138 verificações, sem rede —
+Compila com `--release 8`, roda o SelfTest (164 verificações, sem rede —
 inclui o que cada perfil pode ou não ver) e empacota. O WAR leva o driver
 SQLite em `WEB-INF/lib`. No WAR **dev**, `?perfil=COLEGA`, `?perfil=MODERADOR`
 ou `?perfil=MASTER` na URL troca o usuário simulado (fica na sessão) para
@@ -142,19 +142,56 @@ Tudo na própria página da agência (drawer), em abas:
   **evolução** entre as duas últimas notas, edição/“realizar” de visita
   planejada e anotações da agência.
 - **Ações**: criação rápida, pendentes × concluídas, botões “em tratativa” /
-  “concluir” (pede a solução) / “reabrir”, campo de **retorno/cobrança** com
-  mudança de status e **histórico** (linha do tempo em `acao_atualizacao`).
+  “informou que fez” / “concluir” (mini-formulário com solução e foto do
+  depois) / “reabrir”, campo de **retorno** com mudança de status, botão
+  **“cobrei”** (registra a cobrança e marca quando cobrar de novo) e
+  **histórico** (linha do tempo em `acao_atualizacao`, com tipo: retorno,
+  cobrança, mudança de status, conferência).
 - Excluir uma visita apaga as fotos dela (registro e arquivo) e **solta** as
-  ações (continuam na fila, sem origem).
+  ações (continuam na fila, sem origem). Excluir uma ação apaga seu histórico
+  e suas fotos.
+
+**Cadência de cobrança** (Admin › Cadência): cada prioridade tem um ritmo
+(padrão alta 7, média 15, baixa 30 dias) e um limite de **parada** (14 dias
+sem retorno). Uma ação entra em **“Cobrar hoje”** quando está vencida,
+parada ou quando a próxima cobrança chegou; “cobrei” adia a próxima cobrança
+(+3/+7/+15/+30 dias) sem mexer no prazo da ação e não zera o “sem retorno”;
+um retorno do responsável reinicia o relógio pela cadência. O card mostra
+“sem retorno há N dias”, “cobrada há N dias (N×)” e o selo *cobrar hoje*.
+Na vista Ações: filtros **Cobrar hoje**, **Paradas**, **A conferir** e **Sem
+prova**; o contador do menu é o “cobrar hoje”. Ao abrir a ferramenta, o
+**aviso do dia** resume cobranças, vencidas, paradas, a conferir e visitas
+do dia (fecha por hoje).
+
+**Fechamento comprovado.** Cada ação aceita **fotos do antes e do depois**
+(reduzidas no navegador antes de subir; restritas ao Master). Quando o
+responsável avisa que fez, “informou que fez” leva a ação ao status
+`AGUARDANDO_VERIFICACAO`: sai das vencidas e entra em **“A conferir na
+próxima visita”** (Minha gestão, briefing e aba Ações). No checklist da visita
+seguinte aparece o bloco **Conferir**: “confirmei” conclui a ação com a
+visita como prova (`verificado_em`, `verificado_visita_id`); “não estava
+feito” reabre e conta a reabertura. O KPI **fechamento comprovado** é a
+fração das concluídas em 180 dias com conferência ou foto do depois.
 
 **Minha gestão** (`#planejamento`): KPIs (visitadas, visitas em 90 dias, nota
-média, planejadas na semana, ações em aberto/vencidas), agenda da semana,
-ações vencidas e que vencem em 7 dias, fila de nunca visitadas (menor Conexão
-primeiro), agências frias (sem visita há mais de 120 dias), evolução entre
-visitas, fotos pendentes, anotações gerais. **Ações** (`#acoes`): fila
-nacional com filtros (pendentes / vencidas / 7 dias / concluídas, prioridade,
-regional, texto), agrupada por agência, com o mesmo card de retorno.
-Exports: `/api/export/visitas` e `/api/export/acoes` (CSV `;`, BOM, Excel).
+média, planejadas na semana, cobrar hoje, vencidas, paradas, a conferir,
+fechamento comprovado), agenda da semana, **Cobrar hoje** (lista única
+priorizada: vencidas, paradas, cadência, prioridade), **A conferir na próxima
+visita**, fila de nunca visitadas (menor Conexão primeiro), agências frias
+(sem visita há mais de 120 dias), evolução entre visitas, fotos pendentes,
+anotações gerais. **Ações** (`#acoes`): fila nacional com filtros (cobrar
+hoje / pendentes / vencidas / paradas / 7 dias / a conferir / concluídas / sem
+prova / todas, prioridade, regional, texto), agrupada por agência, com o
+mesmo card de retorno. Exports: `/api/export/visitas` e `/api/export/acoes`
+(CSV `;`, BOM, Excel; o de ações traz cobranças, próxima cobrança, dias sem
+retorno, informado/verificado em, reaberturas e fotos antes/depois).
+
+Rotas da API usadas por esses fluxos (todas exigem Master): `GET /api/hoje`,
+`GET /api/acoes?status=…&prazo=VENCIDAS|7DIAS|30DIAS|SEM|COBRAR|PARADAS&prova=SEM`,
+`POST /api/ponto/{id}/comentar` (`texto`, `status`, `tipo=RETORNO|COBRANCA|STATUS`,
+`adiar` em dias), `POST /api/ponto/{id}/foto?momento=ANTES|DEPOIS` (multipart),
+`POST /api/ponto/{id}/verificar` (`resultado=CONFIRMADO|NAO_FEITO`, `visitaId`),
+`GET/POST /api/admin/cadencia`.
 
 ### Front-end
 

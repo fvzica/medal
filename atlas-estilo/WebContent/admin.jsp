@@ -32,6 +32,23 @@
 
 <main class="conteudo">
 
+  <!-- ============================================ CADÊNCIA DE COBRANÇA -->
+  <h3 style="margin:8px 0 10px">Cadência de cobrança das ações</h3>
+  <p class="rotulo" style="margin:-6px 0 12px">
+    De quantos em quantos dias cada prioridade entra em "Cobrar hoje" quando não
+    há retorno, e a partir de quantos dias sem retorno a ação conta como parada.
+  </p>
+  <div class="cartao"><div class="cartao-corpo">
+    <div class="linha-campos">
+      <div class="campo"><label>Alta · dias</label><input type="number" id="cad-alta" min="1" max="365" value="7"></div>
+      <div class="campo"><label>Média · dias</label><input type="number" id="cad-media" min="1" max="365" value="15"></div>
+      <div class="campo"><label>Baixa · dias</label><input type="number" id="cad-baixa" min="1" max="365" value="30"></div>
+      <div class="campo"><label>Parada após · dias sem retorno</label><input type="number" id="cad-parada" min="1" max="365" value="14"></div>
+      <div class="campo"><label>&nbsp;</label><button class="botao primario" id="cad-salvar" type="button">Salvar cadência</button></div>
+    </div>
+    <div id="cad-situacao" class="rotulo" style="margin:4px 0 0"></div>
+  </div></div>
+
   <!-- ================================================ PASTA DE CSV -->
   <h3 style="margin:8px 0 10px">Pasta de CSV no servidor</h3>
   <p class="rotulo" style="margin:-6px 0 12px">

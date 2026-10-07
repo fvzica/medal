@@ -253,22 +253,116 @@ public final class GestaoDao {
     // (tabela ponto_melhoria: cada ação tem dono, prazo, prioridade, visita de
     //  origem e uma linha do tempo de retorno em acao_atualizacao)
 
+    /** Status intermediário: o responsável avisou que fez; o Master confere na próxima visita. */
+    public static final String ST_AGUARDANDO = "AGUARDANDO_VERIFICACAO";
+
     private static final String SQL_ACOES_BASE =
         "SELECT p.*, ag.nome AS agencia, ag.uf, ag.municipio, ag.regional, " +
         "  (SELECT COUNT(*) FROM acao_atualizacao u WHERE u.ponto_id = p.id) AS atualizacoes, " +
-        "  (SELECT MAX(u.criado_em) FROM acao_atualizacao u WHERE u.ponto_id = p.id) AS ultima_atualizacao " +
+        "  (SELECT MAX(u.criado_em) FROM acao_atualizacao u WHERE u.ponto_id = p.id) AS ultima_atualizacao, " +
+        "  (SELECT MAX(u.criado_em) FROM acao_atualizacao u WHERE u.ponto_id = p.id " +
+        "     AND u.tipo IN ('RETORNO','VERIFICACAO')) AS ultimo_retorno, " +
+        "  (SELECT MAX(u.criado_em) FROM acao_atualizacao u WHERE u.ponto_id = p.id AND u.tipo = 'COBRANCA') AS ultima_cobranca, " +
+        "  (SELECT COUNT(*) FROM acao_atualizacao u WHERE u.ponto_id = p.id AND u.tipo = 'COBRANCA') AS cobrancas, " +
+        "  (SELECT COUNT(*) FROM foto f WHERE f.ponto_id = p.id AND f.momento = 'ANTES') AS fotos_antes, " +
+        "  (SELECT COUNT(*) FROM foto f WHERE f.ponto_id = p.id AND f.momento = 'DEPOIS') AS fotos_depois " +
         "FROM ponto_melhoria p JOIN agencia ag ON ag.prefixo = p.prefixo WHERE 1=1";
 
     public static String pontos(String prefixo, String status) throws SQLException {
-        return acoes(prefixo, status, null, null, null, 0);
+        return acoes(prefixo, status, null, null, null, null, 0);
+    }
+
+    // ------------------------------------------------------------ cadência
+
+    /**
+     * Ritmo de cobrança por prioridade (dias) e limite de "parada" (dias sem
+     * retorno). Guardado em config_parametro; o Master ajusta no Admin.
+     */
+    public static final class Cadencia {
+        public int alta = 7, media = 15, baixa = 30, parada = 14;
+        public int dias(String prioridade) {
+            return "ALTA".equals(prioridade) ? alta : "BAIXA".equals(prioridade) ? baixa : media;
+        }
+        public String json() {
+            return Json.obj().put("ALTA", alta).put("MEDIA", media).put("BAIXA", baixa).put("parada", parada).fim();
+        }
+    }
+
+    public static Cadencia cadencia() throws SQLException {
+        Cadencia c = new Cadencia();
+        c.alta = intParam("cadencia.ALTA", c.alta);
+        c.media = intParam("cadencia.MEDIA", c.media);
+        c.baixa = intParam("cadencia.BAIXA", c.baixa);
+        c.parada = intParam("cadencia.parada", c.parada);
+        return c;
+    }
+
+    public static void cadenciaDefinir(int alta, int media, int baixa, int parada, String por, long agora)
+            throws SQLException {
+        FonteDao.paramDefinir("cadencia.ALTA", String.valueOf(limitar(alta)), por, agora);
+        FonteDao.paramDefinir("cadencia.MEDIA", String.valueOf(limitar(media)), por, agora);
+        FonteDao.paramDefinir("cadencia.BAIXA", String.valueOf(limitar(baixa)), por, agora);
+        FonteDao.paramDefinir("cadencia.parada", String.valueOf(limitar(parada)), por, agora);
+    }
+
+    private static int limitar(int dias) { return Math.max(1, Math.min(365, dias)); }
+
+    private static int intParam(String chave, int padrao) throws SQLException {
+        try { return limitar(Integer.parseInt(FonteDao.param(chave, String.valueOf(padrao)).trim())); }
+        catch (NumberFormatException e) { return padrao; }
+    }
+
+    /** Uma ação lida do banco com os cálculos de prazo/cobrança já feitos. */
+    private static final class AcaoLida {
+        long id; String prefixo, status, prioridade;
+        boolean aberta, aguardando, vencida, parada, cobrarHoje;
+        Long previsao; int fotosDepois;
+        Json.Obj obj;
+        String json() { return obj.fim(); }
+    }
+
+    private static List<AcaoLida> lerAcoes(String sql, List<Object> params, long agora, Cadencia cad,
+                                           boolean comFotos) throws SQLException {
+        List<AcaoLida> lista = new ArrayList<>();
+        try (Connection c = Db.conexao(); PreparedStatement ps = c.prepareStatement(sql)) {
+            for (int i = 0; i < params.size(); i++) {
+                Object v = params.get(i);
+                if (v instanceof Long) ps.setLong(i + 1, (Long) v); else ps.setString(i + 1, (String) v);
+            }
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) lista.add(lerAcao(rs, agora, cad));
+            }
+        }
+        if (comFotos && !lista.isEmpty()) {
+            java.util.Set<Long> ids = new java.util.HashSet<>();
+            for (AcaoLida a : lista) ids.add(a.id);
+            java.util.Map<Long, List<String[]>> fotos = FotoDao.dasAcoes(ids);
+            for (AcaoLida a : lista) {
+                Json.Arr arr = Json.arr();
+                List<String[]> fs = fotos.get(a.id);
+                if (fs != null) for (String[] f : fs) {
+                    arr.add(Json.obj().put("id", f[0]).put("momento", f[1]).put("legenda", f[2]).fim());
+                }
+                a.obj.putRaw("fotos", arr.fim());
+            }
+        }
+        return lista;
+    }
+
+    /** Compatibilidade (sem filtro de prova). */
+    public static String acoes(String prefixo, String status, String prazo, String regional,
+                               String prioridade, long agora) throws SQLException {
+        return acoes(prefixo, status, prazo, regional, prioridade, null, agora);
     }
 
     /**
-     * Ações com filtros: status (ABERTO/EM_TRATATIVA/RESOLVIDO/PENDENTES),
-     * prazo (VENCIDAS/7DIAS/30DIAS/SEM), regional, prioridade.
+     * Ações com filtros: status (ABERTO/EM_TRATATIVA/AGUARDANDO_VERIFICACAO/
+     * RESOLVIDO/PENDENTES), prazo (VENCIDAS/7DIAS/30DIAS/SEM/COBRAR/PARADAS),
+     * regional, prioridade e prova (SEM = concluídas sem foto do depois).
+     * COBRAR e PARADAS dependem da cadência, então são filtrados em Java.
      */
     public static String acoes(String prefixo, String status, String prazo, String regional,
-                               String prioridade, long agora) throws SQLException {
+                               String prioridade, String prova, long agora) throws SQLException {
         StringBuilder sql = new StringBuilder(SQL_ACOES_BASE);
         List<Object> params = new ArrayList<>();
         if (!Texto.vazio(prefixo)) { sql.append(" AND p.prefixo = ?"); params.add(prefixo); }
@@ -276,59 +370,159 @@ public final class GestaoDao {
         else if (!Texto.vazio(status)) { sql.append(" AND p.status = ?"); params.add(status); }
         if (!Texto.vazio(regional)) { sql.append(" AND ag.regional = ?"); params.add(regional); }
         if (!Texto.vazio(prioridade)) { sql.append(" AND p.prioridade = ?"); params.add(prioridade); }
+        boolean emJava = "COBRAR".equals(prazo) || "PARADAS".equals(prazo);
         if ("VENCIDAS".equals(prazo)) {
-            sql.append(" AND p.status <> 'RESOLVIDO' AND p.previsao IS NOT NULL AND p.previsao < ?"); params.add(agora);
+            sql.append(" AND p.status NOT IN ('RESOLVIDO','" + ST_AGUARDANDO + "') AND p.previsao IS NOT NULL AND p.previsao < ?");
+            params.add(agora);
         } else if ("7DIAS".equals(prazo) || "30DIAS".equals(prazo)) {
             long ate = agora + ("7DIAS".equals(prazo) ? 7 : 30) * DIA;
-            sql.append(" AND p.status <> 'RESOLVIDO' AND p.previsao IS NOT NULL AND p.previsao BETWEEN ? AND ?");
+            sql.append(" AND p.status NOT IN ('RESOLVIDO','" + ST_AGUARDANDO + "') AND p.previsao IS NOT NULL AND p.previsao BETWEEN ? AND ?");
             params.add(agora - DIA); params.add(ate);
         } else if ("SEM".equals(prazo)) {
             sql.append(" AND p.status <> 'RESOLVIDO' AND p.previsao IS NULL");
+        } else if (emJava) {
+            sql.append(" AND p.status NOT IN ('RESOLVIDO','" + ST_AGUARDANDO + "')");
         }
-        sql.append(" ORDER BY CASE p.status WHEN 'RESOLVIDO' THEN 1 ELSE 0 END, " +
+        if ("SEM".equals(prova)) {
+            sql.append(" AND p.status = 'RESOLVIDO' AND NOT EXISTS (SELECT 1 FROM foto f WHERE f.ponto_id = p.id AND f.momento = 'DEPOIS')");
+        }
+        sql.append(" ORDER BY CASE p.status WHEN 'RESOLVIDO' THEN 2 WHEN '" + ST_AGUARDANDO + "' THEN 1 ELSE 0 END, " +
                    "CASE p.prioridade WHEN 'ALTA' THEN 0 WHEN 'MEDIA' THEN 1 ELSE 2 END, " +
                    "COALESCE(p.previsao, 9e15), p.criado_em DESC LIMIT 1000");
-        Json.Arr arr = Json.arr();
-        try (Connection c = Db.conexao(); PreparedStatement ps = c.prepareStatement(sql.toString())) {
-            for (int i = 0; i < params.size(); i++) {
-                Object v = params.get(i);
-                if (v instanceof Long) ps.setLong(i + 1, (Long) v); else ps.setString(i + 1, (String) v);
-            }
-            try (ResultSet rs = ps.executeQuery()) {
-                while (rs.next()) arr.add(acaoJson(rs, agora));
-            }
+        List<AcaoLida> lista = lerAcoes(sql.toString(), params, agora, cadencia(), true);
+        if ("COBRAR".equals(prazo)) {
+            List<AcaoLida> f = new ArrayList<>();
+            for (AcaoLida a : lista) if (a.cobrarHoje) f.add(a);
+            ordenarParaCobranca(f);
+            lista = f;
+        } else if ("PARADAS".equals(prazo)) {
+            List<AcaoLida> f = new ArrayList<>();
+            for (AcaoLida a : lista) if (a.parada) f.add(a);
+            lista = f;
         }
+        Json.Arr arr = Json.arr();
+        for (AcaoLida a : lista) arr.add(a.json());
         return arr.fim();
     }
 
-    private static String acaoJson(ResultSet rs, long agora) throws SQLException {
-        Long previsao = epoch(rs, "previsao");
-        boolean aberta = !"RESOLVIDO".equals(rs.getString("status"));
+    /** Vencidas primeiro, depois paradas, depois por prioridade e prazo (ordem estável). */
+    private static void ordenarParaCobranca(List<AcaoLida> lista) {
+        java.util.Collections.sort(lista, new java.util.Comparator<AcaoLida>() {
+            @Override public int compare(AcaoLida a, AcaoLida b) {
+                if (a.vencida != b.vencida) return a.vencida ? -1 : 1;
+                if (a.parada != b.parada) return a.parada ? -1 : 1;
+                int pa = peso(a.prioridade), pb = peso(b.prioridade);
+                if (pa != pb) return pa - pb;
+                long da = a.previsao == null ? Long.MAX_VALUE : a.previsao, db = b.previsao == null ? Long.MAX_VALUE : b.previsao;
+                return Long.compare(da, db);
+            }
+        });
+    }
+
+    private static int peso(String prioridade) {
+        return "ALTA".equals(prioridade) ? 0 : "BAIXA".equals(prioridade) ? 2 : 1;
+    }
+
+    private static long nz(Long v) { return v == null ? 0L : v; }
+
+    /**
+     * Lê uma linha de SQL_ACOES_BASE e calcula prazo, cobrança e parada:
+     *  - vencida: aberta, não aguardando conferência, com previsão passada;
+     *  - semRetornoDias: dias desde o último retorno/conferência (ou criação);
+     *  - parada: sem retorno há mais que o limite da cadência;
+     *  - cobrarHoje: a próxima cobrança já chegou. Depois de uma cobrança o
+     *    Master marca quando quer cobrar de novo (proxima_cobranca_em); um
+     *    retorno posterior reinicia o relógio pela cadência da prioridade.
+     */
+    private static AcaoLida lerAcao(ResultSet rs, long agora, Cadencia cad) throws SQLException {
+        AcaoLida a = new AcaoLida();
+        a.id = rs.getLong("id");
+        a.prefixo = rs.getString("prefixo");
+        a.status = rs.getString("status");
+        a.prioridade = rs.getString("prioridade") == null ? "MEDIA" : rs.getString("prioridade");
+        a.previsao = epoch(rs, "previsao");
+        a.aberta = !"RESOLVIDO".equals(a.status);
+        a.aguardando = ST_AGUARDANDO.equals(a.status);
+        a.vencida = a.aberta && !a.aguardando && a.previsao != null && agora > 0 && a.previsao < agora;
+        a.fotosDepois = rs.getInt("fotos_depois");
+        long criadoEm = nz(epoch(rs, "criado_em"));
+        Long ultimoRetorno = epoch(rs, "ultimo_retorno"), ultimaCobranca = epoch(rs, "ultima_cobranca");
+        Long proximaCobrancaEm = epoch(rs, "proxima_cobranca_em");
         long vid = rs.getLong("visita_id"); boolean semVisita = rs.wasNull();
-        return Json.obj()
-            .put("id", rs.getLong("id"))
-            .put("prefixo", rs.getString("prefixo"))
+        long vvid = rs.getLong("verificado_visita_id"); boolean semVerifVisita = rs.wasNull();
+
+        Integer semRetornoDias = null, cobradaHaDias = null;
+        Long proximaCobranca = null;
+        if (a.aberta && !a.aguardando && agora > 0) {
+            long baseRetorno = Math.max(criadoEm, nz(ultimoRetorno));
+            semRetornoDias = (int) Math.floor((agora - baseRetorno) / (double) DIA);
+            a.parada = semRetornoDias >= cad.parada;
+            if (ultimaCobranca != null) cobradaHaDias = (int) Math.floor((agora - ultimaCobranca) / (double) DIA);
+            boolean explicita = proximaCobrancaEm != null && ultimaCobranca != null
+                && (ultimoRetorno == null || ultimoRetorno <= ultimaCobranca);
+            long base = Math.max(baseRetorno, nz(ultimaCobranca));
+            proximaCobranca = explicita ? proximaCobrancaEm : base + cad.dias(a.prioridade) * DIA;
+            a.cobrarHoje = explicita ? proximaCobranca <= agora : (a.vencida || a.parada || proximaCobranca <= agora);
+        }
+
+        a.obj = Json.obj()
+            .put("id", a.id)
+            .put("prefixo", a.prefixo)
             .put("agencia", rs.getString("agencia"))
             .put("uf", rs.getString("uf"))
             .put("municipio", rs.getString("municipio"))
             .put("regional", rs.getString("regional"))
             .put("descricao", rs.getString("descricao"))
-            .put("status", rs.getString("status"))
+            .put("status", a.status)
             .put("solucao", rs.getString("solucao"))
-            .putNum("previsao", previsao)
-            .put("vencida", aberta && previsao != null && agora > 0 && previsao < agora)
-            .putNum("diasParaPrazo", previsao == null || agora <= 0 ? null
-                    : (double) Math.floor((previsao - agora) / (double) DIA))
+            .putNum("previsao", a.previsao)
+            .put("vencida", a.vencida)
+            .put("aguardando", a.aguardando)
+            .putNum("diasParaPrazo", a.previsao == null || agora <= 0 ? null
+                    : (double) Math.floor((a.previsao - agora) / (double) DIA))
             .putNum("resolvidoEm", epoch(rs, "resolvido_em"))
             .putNum("visitaId", semVisita ? null : vid)
             .put("responsavel", rs.getString("responsavel"))
-            .put("prioridade", rs.getString("prioridade") == null ? "MEDIA" : rs.getString("prioridade"))
+            .put("prioridade", a.prioridade)
             .put("tipo", rs.getString("tipo") == null ? "ACAO" : rs.getString("tipo"))
             .put("atualizacoes", rs.getInt("atualizacoes"))
             .putNum("ultimaAtualizacao", epoch(rs, "ultima_atualizacao"))
+            .putNum("ultimoRetorno", ultimoRetorno)
+            .putNum("ultimaCobranca", ultimaCobranca)
+            .put("cobrancas", rs.getInt("cobrancas"))
+            .putNum("semRetornoDias", semRetornoDias)
+            .putNum("cobradaHaDias", cobradaHaDias)
+            .putNum("proximaCobranca", proximaCobranca)
+            .put("cobrarHoje", a.cobrarHoje)
+            .put("parada", a.parada)
+            .put("cadenciaDias", cad.dias(a.prioridade))
+            .putNum("informadoEm", epoch(rs, "informado_em"))
+            .putNum("verificadoEm", epoch(rs, "verificado_em"))
+            .putNum("verificadoVisitaId", semVerifVisita ? null : vvid)
+            .put("reaberturas", rs.getInt("reaberturas"))
+            .put("fotosAntes", rs.getInt("fotos_antes"))
+            .put("fotosDepois", a.fotosDepois)
+            .put("comprovada", !a.aberta && (epoch(rs, "verificado_em") != null || a.fotosDepois > 0))
             .put("criadoPor", rs.getString("criado_por"))
-            .putNum("criadoEm", epoch(rs, "criado_em"))
-            .fim();
+            .putNum("criadoEm", epoch(rs, "criado_em"));
+        return a;
+    }
+
+    public static String pontoPrefixo(long id) throws SQLException {
+        try (Connection c = Db.conexao();
+             PreparedStatement ps = c.prepareStatement("SELECT prefixo FROM ponto_melhoria WHERE id = ?")) {
+            ps.setLong(1, id);
+            try (ResultSet rs = ps.executeQuery()) { return rs.next() ? rs.getString(1) : null; }
+        }
+    }
+
+    /** Descrição curta da ação (legenda das fotos antes/depois). */
+    public static String pontoDescricao(long id) throws SQLException {
+        try (Connection c = Db.conexao();
+             PreparedStatement ps = c.prepareStatement("SELECT descricao FROM ponto_melhoria WHERE id = ?")) {
+            ps.setLong(1, id);
+            try (ResultSet rs = ps.executeQuery()) { return rs.next() ? rs.getString(1) : null; }
+        }
     }
 
     public static long pontoCriar(String prefixo, String descricao, Long previsao,
@@ -394,33 +588,120 @@ public final class GestaoDao {
     /** Registra um retorno na linha do tempo; statusNovo opcional muda o status. */
     public static long pontoComentar(long id, String texto, String statusNovo, String por, long agora)
             throws SQLException {
+        return pontoComentar(id, texto, statusNovo, por, agora, "RETORNO", null);
+    }
+
+    public static String tipoAtualizacaoValido(String tipo) {
+        return "COBRANCA".equals(tipo) || "STATUS".equals(tipo) || "VERIFICACAO".equals(tipo) ? tipo : "RETORNO";
+    }
+
+    /**
+     * Linha do tempo com tipo. COBRANCA marca a próxima cobrança (adiarDias à
+     * frente; sem valor, usa a cadência da prioridade) e não zera o "sem
+     * retorno". Status AGUARDANDO_VERIFICACAO registra informado_em.
+     */
+    public static long pontoComentar(long id, String texto, String statusNovo, String por, long agora,
+                                     String tipo, Integer adiarDias) throws SQLException {
+        tipo = tipoAtualizacaoValido(tipo);
         try (Connection c = Db.conexao()) {
             c.setAutoCommit(false);
             try {
                 long novoId;
                 try (PreparedStatement ps = c.prepareStatement(
-                        "INSERT INTO acao_atualizacao (ponto_id,texto,status_novo,criado_por,criado_em) " +
-                        "VALUES (?,?,?,?,?)", Statement.RETURN_GENERATED_KEYS)) {
+                        "INSERT INTO acao_atualizacao (ponto_id,texto,status_novo,criado_por,criado_em,tipo) " +
+                        "VALUES (?,?,?,?,?,?)", Statement.RETURN_GENERATED_KEYS)) {
                     ps.setLong(1, id);
                     ps.setString(2, Texto.vazio(texto) ? null : Texto.aparar(texto, 4000));
                     ps.setString(3, Texto.vazio(statusNovo) ? null : statusNovo);
                     ps.setString(4, por);
                     ps.setLong(5, agora);
+                    ps.setString(6, tipo);
                     ps.executeUpdate();
                     try (ResultSet rs = ps.getGeneratedKeys()) { rs.next(); novoId = rs.getLong(1); }
                 }
                 if (!Texto.vazio(statusNovo)) {
                     try (PreparedStatement ps = c.prepareStatement(
                             "UPDATE ponto_melhoria SET status = ?, resolvido_em = CASE WHEN ? THEN ? ELSE resolvido_em END, " +
+                            "informado_em = CASE WHEN ? THEN ? ELSE informado_em END, " +
                             "atualizado_em = ? WHERE id = ?")) {
                         ps.setString(1, statusNovo);
                         ps.setBoolean(2, "RESOLVIDO".equals(statusNovo));
-                        ps.setLong(3, agora); ps.setLong(4, agora); ps.setLong(5, id);
+                        ps.setLong(3, agora);
+                        ps.setBoolean(4, ST_AGUARDANDO.equals(statusNovo));
+                        ps.setLong(5, agora);
+                        ps.setLong(6, agora); ps.setLong(7, id);
+                        ps.executeUpdate();
+                    }
+                }
+                if ("COBRANCA".equals(tipo)) {
+                    int dias = adiarDias != null ? limitar(adiarDias) : -1;
+                    if (dias < 0) {
+                        Cadencia cad = cadencia();
+                        String prio = "MEDIA";
+                        try (PreparedStatement ps = c.prepareStatement("SELECT prioridade FROM ponto_melhoria WHERE id = ?")) {
+                            ps.setLong(1, id);
+                            try (ResultSet rs = ps.executeQuery()) { if (rs.next() && rs.getString(1) != null) prio = rs.getString(1); }
+                        }
+                        dias = cad.dias(prio);
+                    }
+                    try (PreparedStatement ps = c.prepareStatement(
+                            "UPDATE ponto_melhoria SET proxima_cobranca_em = ?, atualizado_em = ? WHERE id = ?")) {
+                        ps.setLong(1, agora + dias * DIA); ps.setLong(2, agora); ps.setLong(3, id);
                         ps.executeUpdate();
                     }
                 }
                 c.commit();
                 return novoId;
+            } catch (SQLException e) { c.rollback(); throw e; }
+            finally { c.setAutoCommit(true); }
+        }
+    }
+
+    /**
+     * Conferência in loco de uma ação que o responsável disse ter feito:
+     * confirmada -> concluída (com a visita como prova); não feita -> volta a
+     * ABERTO e conta uma reabertura. Entra na linha do tempo como VERIFICACAO.
+     */
+    public static boolean pontoVerificar(long id, boolean confirmada, Long visitaId, String texto,
+                                         String por, long agora) throws SQLException {
+        try (Connection c = Db.conexao()) {
+            c.setAutoCommit(false);
+            try {
+                int n;
+                if (confirmada) {
+                    try (PreparedStatement ps = c.prepareStatement(
+                            "UPDATE ponto_melhoria SET status = 'RESOLVIDO', resolvido_em = ?, verificado_em = ?, " +
+                            "verificado_visita_id = ?, solucao = COALESCE(solucao, ?), atualizado_em = ? WHERE id = ?")) {
+                        ps.setLong(1, agora); ps.setLong(2, agora);
+                        setLong(ps, 3, visitaId);
+                        ps.setString(4, Texto.vazio(texto) ? null : Texto.aparar(texto, 4000));
+                        ps.setLong(5, agora); ps.setLong(6, id);
+                        n = ps.executeUpdate();
+                    }
+                } else {
+                    try (PreparedStatement ps = c.prepareStatement(
+                            "UPDATE ponto_melhoria SET status = 'ABERTO', informado_em = NULL, " +
+                            "reaberturas = COALESCE(reaberturas, 0) + 1, atualizado_em = ? WHERE id = ?")) {
+                        ps.setLong(1, agora); ps.setLong(2, id);
+                        n = ps.executeUpdate();
+                    }
+                }
+                if (n > 0) {
+                    try (PreparedStatement ps = c.prepareStatement(
+                            "INSERT INTO acao_atualizacao (ponto_id,texto,status_novo,criado_por,criado_em,tipo) " +
+                            "VALUES (?,?,?,?,?,'VERIFICACAO')")) {
+                        ps.setLong(1, id);
+                        ps.setString(2, Texto.vazio(texto)
+                            ? (confirmada ? "Conferido na visita: feito." : "Conferido na visita: não estava feito.")
+                            : Texto.aparar(texto, 4000));
+                        ps.setString(3, confirmada ? "RESOLVIDO" : "ABERTO");
+                        ps.setString(4, por);
+                        ps.setLong(5, agora);
+                        ps.executeUpdate();
+                    }
+                }
+                c.commit();
+                return n > 0;
             } catch (SQLException e) { c.rollback(); throw e; }
             finally { c.setAutoCommit(true); }
         }
@@ -435,6 +716,7 @@ public final class GestaoDao {
                 while (rs.next()) {
                     arr.add(Json.obj().put("id", rs.getLong("id")).put("texto", rs.getString("texto"))
                         .put("statusNovo", rs.getString("status_novo")).put("criadoPor", rs.getString("criado_por"))
+                        .put("tipo", rs.getString("tipo") == null ? "RETORNO" : rs.getString("tipo"))
                         .putNum("criadoEm", epoch(rs, "criado_em")).fim());
                 }
             }
@@ -464,8 +746,11 @@ public final class GestaoDao {
     public static String planejamento(long agora) throws SQLException {
         Json.Arr naoVisitadas = Json.arr(), planejadas = Json.arr(), semFoto = Json.arr();
         Json.Arr estourados = Json.arr(), vencendo = Json.arr(), frias = Json.arr(), evolucao = Json.arr();
+        Json.Arr cobrarHoje = Json.arr(), aConferir = Json.arr();
         int total = 0, visitadas = 0, visitas90 = 0, acoesAbertas = 0, acoesVencidas = 0, agendaSemana = 0;
+        int nCobrar = 0, nParadas = 0, nAguardando = 0, concluidas180 = 0, comprovadas180 = 0;
         Double notaMedia = null;
+        Cadencia cad = cadencia();
 
         try (Connection c = Db.conexao()) {
             try (Statement st = c.createStatement(); ResultSet rs = st.executeQuery(
@@ -474,12 +759,15 @@ public final class GestaoDao {
                     " (SELECT COUNT(*) FROM visita WHERE status = 'REALIZADA' AND data_realizada >= " + (agora - 90 * DIA) + ") AS v90, " +
                     " (SELECT AVG(nota_geral) FROM visita WHERE status = 'REALIZADA' AND nota_geral IS NOT NULL) AS nota, " +
                     " (SELECT COUNT(*) FROM ponto_melhoria WHERE status <> 'RESOLVIDO') AS abertas, " +
-                    " (SELECT COUNT(*) FROM ponto_melhoria WHERE status <> 'RESOLVIDO' AND previsao IS NOT NULL AND previsao < " + agora + ") AS vencidas, " +
-                    " (SELECT COUNT(*) FROM visita WHERE status = 'PLANEJADA' AND data_planejada BETWEEN " + (agora - DIA) + " AND " + (agora + 7 * DIA) + ") AS semana")) {
+                    " (SELECT COUNT(*) FROM visita WHERE status = 'PLANEJADA' AND data_planejada BETWEEN " + (agora - DIA) + " AND " + (agora + 7 * DIA) + ") AS semana, " +
+                    " (SELECT COUNT(*) FROM ponto_melhoria WHERE status = 'RESOLVIDO' AND resolvido_em >= " + (agora - 180 * DIA) + ") AS c180, " +
+                    " (SELECT COUNT(*) FROM ponto_melhoria p WHERE p.status = 'RESOLVIDO' AND p.resolvido_em >= " + (agora - 180 * DIA) +
+                    "    AND (p.verificado_em IS NOT NULL OR EXISTS (SELECT 1 FROM foto f WHERE f.ponto_id = p.id AND f.momento = 'DEPOIS'))) AS p180")) {
                 if (rs.next()) {
                     total = rs.getInt("total"); visitadas = rs.getInt("visitadas"); visitas90 = rs.getInt("v90");
                     double n = rs.getDouble("nota"); notaMedia = rs.wasNull() ? null : Math.round(n * 10) / 10.0;
-                    acoesAbertas = rs.getInt("abertas"); acoesVencidas = rs.getInt("vencidas"); agendaSemana = rs.getInt("semana");
+                    acoesAbertas = rs.getInt("abertas"); agendaSemana = rs.getInt("semana");
+                    concluidas180 = rs.getInt("c180"); comprovadas180 = rs.getInt("p180");
                 }
             }
             String sqlNao =
@@ -526,17 +814,22 @@ public final class GestaoDao {
                         .put("nome", rs.getString("nome")).put("uf", rs.getString("uf")).fim());
                 }
             }
-            // ações vencidas e vencendo em 7 dias
-            try (PreparedStatement ps = c.prepareStatement(SQL_ACOES_BASE +
-                    " AND p.status <> 'RESOLVIDO' AND p.previsao IS NOT NULL AND p.previsao < ? ORDER BY p.previsao LIMIT 100")) {
-                ps.setLong(1, agora);
-                try (ResultSet rs = ps.executeQuery()) { while (rs.next()) estourados.add(acaoJson(rs, agora)); }
-            }
-            try (PreparedStatement ps = c.prepareStatement(SQL_ACOES_BASE +
-                    " AND p.status <> 'RESOLVIDO' AND p.previsao BETWEEN ? AND ? ORDER BY p.previsao LIMIT 100")) {
-                ps.setLong(1, agora); ps.setLong(2, agora + 7 * DIA);
-                try (ResultSet rs = ps.executeQuery()) { while (rs.next()) vencendo.add(acaoJson(rs, agora)); }
-            }
+        }
+        // uma passada sobre as ações em aberto: vencidas, vencendo, a cobrar hoje, paradas e a conferir
+        List<AcaoLida> abertas = lerAcoes(SQL_ACOES_BASE + " AND p.status <> 'RESOLVIDO' ORDER BY " +
+            "CASE p.prioridade WHEN 'ALTA' THEN 0 WHEN 'MEDIA' THEN 1 ELSE 2 END, COALESCE(p.previsao, 9e15)",
+            new ArrayList<Object>(), agora, cad, false);
+        List<AcaoLida> paraCobrar = new ArrayList<>();
+        for (AcaoLida a : abertas) {
+            if (a.aguardando) { nAguardando++; aConferir.add(a.json()); continue; }
+            if (a.vencida) { acoesVencidas++; if (estourados != null) estourados.add(a.json()); }
+            else if (a.previsao != null && a.previsao <= agora + 7 * DIA) vencendo.add(a.json());
+            if (a.parada) nParadas++;
+            if (a.cobrarHoje) { nCobrar++; paraCobrar.add(a); }
+        }
+        ordenarParaCobranca(paraCobrar);
+        for (AcaoLida a : paraCobrar) cobrarHoje.add(a.json());
+        try (Connection c = Db.conexao()) {
             // agências frias: última visita realizada há mais de 120 dias
             try (PreparedStatement ps = c.prepareStatement(
                     "SELECT a.prefixo, a.nome, a.uf, a.municipio, MAX(v.data_realizada) AS ultima " +
@@ -578,19 +871,61 @@ public final class GestaoDao {
                 }
             }
         }
+        Integer pct = concluidas180 == 0 ? null : (int) Math.round(100.0 * comprovadas180 / concluidas180);
         return Json.obj()
             .putRaw("kpis", Json.obj().put("total", total).put("visitadas", visitadas).put("visitas90", visitas90)
                 .putNum("notaMedia", notaMedia).put("acoesAbertas", acoesAbertas).put("acoesVencidas", acoesVencidas)
-                .put("agendaSemana", agendaSemana).fim())
+                .put("agendaSemana", agendaSemana)
+                .put("cobrarHoje", nCobrar).put("paradas", nParadas).put("aguardando", nAguardando)
+                .put("concluidas180", concluidas180).put("comprovadas180", comprovadas180)
+                .putNum("fechamentoComprovadoPct", pct).fim())
+            .putRaw("cadencia", cad.json())
             .putRaw("naoVisitadas", naoVisitadas.fim())
             .putRaw("planejadas", planejadas.fim())
             .putRaw("semFoto", semFoto.fim())
             .putRaw("pontosEstourados", estourados.fim())
             .putRaw("acoesVencendo", vencendo.fim())
+            .putRaw("cobrarHoje", cobrarHoje.fim())
+            .putRaw("aConferir", aConferir.fim())
             .putRaw("frias", frias.fim())
             .putRaw("evolucao", evolucao.fim())
             .putRaw("anotacoesGerais", anotacoes(null))
             .fim();
+    }
+
+    /**
+     * Aviso do dia (abertura da ferramenta): quantas cobranças, vencidas,
+     * paradas, a conferir, visitas planejadas para hoje e atrasadas.
+     */
+    public static String resumoDoDia(long agora) throws SQLException {
+        Cadencia cad = cadencia();
+        int cobrar = 0, vencidas = 0, paradas = 0, aguardando = 0, altasSemRetorno = 0;
+        for (AcaoLida a : lerAcoes(SQL_ACOES_BASE + " AND p.status <> 'RESOLVIDO'", new ArrayList<Object>(), agora, cad, false)) {
+            if (a.aguardando) { aguardando++; continue; }
+            if (a.cobrarHoje) cobrar++;
+            if (a.vencida) vencidas++;
+            if (a.parada) paradas++;
+            if ("ALTA".equals(a.prioridade) && a.parada) altasSemRetorno++;
+        }
+        int visitasHoje = 0, atrasadas = 0;
+        java.util.Calendar hoje = java.util.Calendar.getInstance(java.util.TimeZone.getTimeZone("America/Sao_Paulo"));
+        hoje.setTimeInMillis(agora);
+        int diaHoje = hoje.get(java.util.Calendar.DAY_OF_YEAR), anoHoje = hoje.get(java.util.Calendar.YEAR);
+        try (Connection c = Db.conexao(); PreparedStatement ps = c.prepareStatement(
+                "SELECT data_planejada FROM visita WHERE status = 'PLANEJADA' AND data_planejada IS NOT NULL");
+             ResultSet rs = ps.executeQuery()) {
+            while (rs.next()) {
+                long d = rs.getLong(1);
+                java.util.Calendar k = java.util.Calendar.getInstance(java.util.TimeZone.getTimeZone("America/Sao_Paulo"));
+                k.setTimeInMillis(d);
+                if (k.get(java.util.Calendar.YEAR) == anoHoje && k.get(java.util.Calendar.DAY_OF_YEAR) == diaHoje) visitasHoje++;
+                else if (d < agora - DIA) atrasadas++;
+            }
+        }
+        return Json.obj().put("cobrarHoje", cobrar).put("vencidas", vencidas).put("paradas", paradas)
+            .put("aConferir", aguardando).put("altasParadas", altasSemRetorno)
+            .put("visitasHoje", visitasHoje).put("visitasAtrasadas", atrasadas)
+            .putRaw("cadencia", cad.json()).fim();
     }
 
     // --------------------------------------------------------------- exports
@@ -616,20 +951,31 @@ public final class GestaoDao {
 
     public static String csvAcoes(long agora) throws SQLException {
         StringBuilder sb = new StringBuilder("id;prefixo;agencia;regional;descricao;status;prioridade;responsavel;" +
-            "prazo;situacao_prazo;solucao;visita_id;retornos;criado_em;resolvido_em\n");
+            "prazo;situacao_prazo;solucao;visita_id;retornos;cobrancas;ultima_cobranca;proxima_cobranca;sem_retorno_dias;" +
+            "informado_em;verificado_em;reaberturas;fotos_antes;fotos_depois;criado_em;resolvido_em\n");
+        Cadencia cad = cadencia();
         try (Connection c = Db.conexao(); PreparedStatement ps = c.prepareStatement(
                 SQL_ACOES_BASE + " ORDER BY CASE p.status WHEN 'RESOLVIDO' THEN 1 ELSE 0 END, COALESCE(p.previsao, 9e15)");
              ResultSet rs = ps.executeQuery()) {
             while (rs.next()) {
-                Long prev = epoch(rs, "previsao");
-                boolean aberta = !"RESOLVIDO".equals(rs.getString("status"));
-                String situ = prev == null ? "sem prazo" : !aberta ? "concluída" : prev < agora ? "vencida"
-                    : prev < agora + 7 * DIA ? "vence em 7 dias" : "no prazo";
+                AcaoLida a = lerAcao(rs, agora, cad);
+                Long prev = a.previsao;
+                String situ = a.aguardando ? "aguardando conferência" : !a.aberta ? "concluída" : prev == null ? "sem prazo"
+                    : a.vencida ? "vencida" : prev < agora + 7 * DIA ? "vence em 7 dias" : "no prazo";
+                if (a.aberta && !a.aguardando && a.parada) situ += " · parada";
+                if (a.cobrarHoje) situ += " · cobrar";
                 long vid = rs.getLong("visita_id"); boolean sv = rs.wasNull();
-                sb.append(csv(String.valueOf(rs.getLong("id")), rs.getString("prefixo"), rs.getString("agencia"),
-                    rs.getString("regional"), rs.getString("descricao"), rs.getString("status"), rs.getString("prioridade"),
+                Long ultimaCobranca = epoch(rs, "ultima_cobranca");
+                Long proxima = epoch(rs, "proxima_cobranca_em");
+                long base = Math.max(nz(epoch(rs, "criado_em")), nz(epoch(rs, "ultimo_retorno")));
+                String semRetorno = a.aberta && !a.aguardando ? String.valueOf((long) Math.floor((agora - base) / (double) DIA)) : "";
+                sb.append(csv(String.valueOf(a.id), a.prefixo, rs.getString("agencia"),
+                    rs.getString("regional"), rs.getString("descricao"), a.status, a.prioridade,
                     rs.getString("responsavel"), data(prev), situ, rs.getString("solucao"), sv ? "" : String.valueOf(vid),
-                    String.valueOf(rs.getInt("atualizacoes")), data(epoch(rs, "criado_em")), data(epoch(rs, "resolvido_em"))));
+                    String.valueOf(rs.getInt("atualizacoes")), String.valueOf(rs.getInt("cobrancas")), data(ultimaCobranca),
+                    data(proxima), semRetorno, data(epoch(rs, "informado_em")), data(epoch(rs, "verificado_em")),
+                    String.valueOf(rs.getInt("reaberturas")), String.valueOf(rs.getInt("fotos_antes")),
+                    String.valueOf(a.fotosDepois), data(epoch(rs, "criado_em")), data(epoch(rs, "resolvido_em"))));
             }
         }
         return sb.toString();
