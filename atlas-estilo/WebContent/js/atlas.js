@@ -1212,7 +1212,8 @@
     var cad = (App.contexto && App.contexto.cadencia) || {};
     var h = '<div class="acao-card' + (p.vencida ? ' vencida' : '') + (aberta ? '' : ' resolvida') +
       (aguardando ? ' aguardando' : '') + (p.parada ? ' parada' : '') + (p.cobrarHoje ? ' cobrar' : '') +
-      (opts.compacta ? ' compacta' : '') + '" data-ponto="' + p.id + '" data-prefixo-acao="' + esc(p.prefixo || '') + '">';
+      (opts.compacta ? ' compacta' : '') + '" data-ponto="' + p.id + '" data-prefixo-acao="' + esc(p.prefixo || '') +
+      '" data-cadencia="' + (p.cadenciaDias || '') + '">';
     h += '<span class="prio ' + esc(p.prioridade || 'MEDIA') + '" title="prioridade ' + esc((p.prioridade || 'MEDIA').toLowerCase()) + '"></span>';
     h += '<div><div class="desc">' + esc(p.descricao) + '</div><div class="meta">' +
       (opts.comAgencia ? '<button class="botao mini claro" data-prefixo="' + esc(p.prefixo) + '">' + esc(p.agencia || p.prefixo) + '</button>' : '') +
@@ -1233,9 +1234,11 @@
         ? '<button class="botao mini primario" data-acao="confirmar" title="vi na agência: está feito">confirmei</button>' +
           '<button class="botao mini perigo" data-acao="nao-feito" title="vi na agência: não estava feito">não estava feito</button>'
         : aberta
-          ? (p.status === 'ABERTO' ? '<button class="botao mini claro" data-acao="tratar">em tratativa</button>' : '') +
+          ? (opts.compacta && p.cobrarHoje
+              ? '<button class="botao mini primario" data-acao="cobrei" title="registra a cobrança; próxima pela cadência da prioridade">cobrei</button>' : '') +
+            (p.status === 'ABERTO' ? '<button class="botao mini claro" data-acao="tratar">em tratativa</button>' : '') +
             '<button class="botao mini claro" data-acao="informou" title="o responsável avisou que fez; conferir na próxima visita">informou que fez</button>' +
-            '<button class="botao mini primario" data-acao="resolver">concluir</button>'
+            '<button class="botao mini ' + (opts.compacta && p.cobrarHoje ? 'claro' : 'primario') + '" data-acao="resolver">concluir</button>'
           : '<button class="botao mini claro" data-acao="reabrir">reabrir</button>') +
       (p.atualizacoes ? '<button class="botao mini claro" data-acao="historico">histórico</button>' : '') +
       '<button class="botao mini perigo" data-acao="excluir-ponto">excluir</button></span>';
@@ -1505,10 +1508,10 @@
     }
   }
 
-  /** Botões de um card de ação (compartilhado pela agência e pela vista Ações). */
   /** Mini-formulário dentro do card (concluir com prova / informou que fez). */
   function abrirMiniForm(cartao, modo) {
     var mini = $('[data-mini]', cartao);
+    liberarPrevias(cartao);
     cartao._fotosMini = [];
     var concluir = modo === 'resolver';
     mini.innerHTML =
@@ -1523,11 +1526,20 @@
     $('[data-campo="mini-texto"]', mini).focus();
   }
 
+  /** Libera as URLs de prévia (blob:) criadas para as miniaturas do mini-form. */
+  function liberarPrevias(cartao) {
+    (cartao._urlsMini || []).forEach(function (u) { try { URL.revokeObjectURL(u); } catch (e) { /* já liberada */ } });
+    cartao._urlsMini = [];
+  }
+
   function renderFotosMini(cartao) {
     var alvo = $('[data-mini-fotos]', cartao);
     if (!alvo) return;
+    liberarPrevias(cartao);
     alvo.innerHTML = (cartao._fotosMini || []).map(function (f) {
-      return '<img alt="" src="' + URL.createObjectURL(f) + '">';
+      var u = URL.createObjectURL(f);
+      cartao._urlsMini.push(u);
+      return '<img alt="" src="' + u + '">';
     }).join('') + ((cartao._fotosMini || []).length ? '<span>' + cartao._fotosMini.length + ' foto(s)</span>' : '<span>opcional, mas é a prova</span>');
   }
 
@@ -1575,10 +1587,12 @@
           .then(function (r) { toast(r.gravadas + ' foto(s) do ' + momento.toLowerCase() + ' guardada(s).'); depois(); });
       }).catch(falha);
     } else if (acao === 'cobrei') {
-      var txtC = $('[data-campo="retorno"]', cartao).value.trim();
-      var adiar = $('[data-campo="adiar"]', cartao).value;
-      post('ponto/' + id + '/comentar', { tipo: 'COBRANCA', texto: txtC || 'Cobrança feita', adiar: adiar })
-        .then(function () { toast('Cobrança registrada · próxima em ' + adiar + ' dias.'); depois(); }).catch(falha);
+      // no card compacto (planejamento) não há campo de texto nem de adiar: usa a cadência da prioridade
+      var campoTxt = $('[data-campo="retorno"]', cartao), campoAdiar = $('[data-campo="adiar"]', cartao);
+      var txtC = campoTxt ? campoTxt.value.trim() : '';
+      var adiar = campoAdiar ? campoAdiar.value : (cartao.getAttribute('data-cadencia') || '');
+      post('ponto/' + id + '/comentar', { tipo: 'COBRANCA', texto: txtC || 'Cobrança feita', adiar: adiar || null })
+        .then(function () { toast('Cobrança registrada' + (adiar ? ' · próxima em ' + adiar + ' dias.' : '.')); depois(); }).catch(falha);
     } else if (acao === 'excluir-ponto') {
       if (!confirm('Excluir esta ação, seu histórico e suas fotos?')) return;
       post('ponto/' + id + '/excluir', {}).then(depois).catch(falha);

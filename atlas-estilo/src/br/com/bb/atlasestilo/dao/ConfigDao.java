@@ -183,6 +183,11 @@ public final class ConfigDao {
                              "(SELECT prefixo FROM agencia WHERE origem = 'EXEMPLO')");
             st.executeUpdate("DELETE FROM anotacao WHERE criado_por = 'EXEMPLO' OR prefixo IN " +
                              "(SELECT prefixo FROM agencia WHERE origem = 'EXEMPLO')");
+            // linha do tempo e fotos das ações que vão sumir, antes de apagar as ações
+            st.executeUpdate("DELETE FROM acao_atualizacao WHERE ponto_id IN (SELECT id FROM ponto_melhoria " +
+                             "WHERE criado_por = 'EXEMPLO' OR prefixo IN (SELECT prefixo FROM agencia WHERE origem = 'EXEMPLO'))");
+            st.executeUpdate("DELETE FROM foto WHERE ponto_id IN (SELECT id FROM ponto_melhoria " +
+                             "WHERE criado_por = 'EXEMPLO' OR prefixo IN (SELECT prefixo FROM agencia WHERE origem = 'EXEMPLO'))");
             st.executeUpdate("DELETE FROM ponto_melhoria WHERE criado_por = 'EXEMPLO' OR prefixo IN " +
                              "(SELECT prefixo FROM agencia WHERE origem = 'EXEMPLO')");
             st.executeUpdate("DELETE FROM foto WHERE prefixo IN " +

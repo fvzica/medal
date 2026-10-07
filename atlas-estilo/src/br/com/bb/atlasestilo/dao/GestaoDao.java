@@ -569,6 +569,7 @@ public final class GestaoDao {
                      "responsavel = COALESCE(?, responsavel), prioridade = COALESCE(?, prioridade), " +
                      "descricao = COALESCE(?, descricao), " +
                      "resolvido_em = CASE WHEN ? THEN ? ELSE resolvido_em END, " +
+                     "informado_em = CASE WHEN ? THEN ? ELSE informado_em END, " +
                      "atualizado_em = ? WHERE id = ?";
         try (Connection c = Db.conexao(); PreparedStatement ps = c.prepareStatement(sql)) {
             ps.setString(1, Texto.vazio(status) ? null : status);
@@ -579,8 +580,10 @@ public final class GestaoDao {
             ps.setString(6, Texto.vazio(descricao) ? null : Texto.aparar(descricao, 4000));
             ps.setBoolean(7, resolver);
             ps.setLong(8, agora);
-            ps.setLong(9, agora);
-            ps.setLong(10, id);
+            ps.setBoolean(9, ST_AGUARDANDO.equals(status));
+            ps.setLong(10, agora);
+            ps.setLong(11, agora);
+            ps.setLong(12, id);
             return ps.executeUpdate() > 0;
         }
     }

@@ -53,7 +53,11 @@ public final class SelfTest {
                        "('ambiencia','nota_geral','melhorias','percepcao','claros')") == 5
                 && contar("SELECT COUNT(*) FROM pragma_table_info('foto') WHERE name IN ('visita_id','restrita')") == 2
                 && contar("SELECT COUNT(*) FROM pragma_table_info('ponto_melhoria') WHERE name IN " +
-                          "('visita_id','responsavel','prioridade')") == 3);
+                          "('visita_id','responsavel','prioridade','proxima_cobranca_em','verificado_em','reaberturas')") == 6
+                && contar("SELECT COUNT(*) FROM pragma_table_info('acao_atualizacao') WHERE name = 'tipo'") == 1
+                && contar("SELECT COUNT(*) FROM pragma_table_info('foto') WHERE name IN ('ponto_id','momento')") == 2
+                && contar("SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name IN " +
+                          "('idx_foto_ponto','idx_ponto_status','idx_acao_atu_tipo')") == 3);
         br.com.bb.atlasestilo.dao.ConfigDao.semearMastersSeVazio();
         DadosExemplo.semear();
         long agora = System.currentTimeMillis();
@@ -200,6 +204,9 @@ public final class SelfTest {
                 contar("SELECT COUNT(*) FROM agencia WHERE origem='EXEMPLO'") == 0);
         verifica("limpar exemplo zera anotações do gerador",
                 contar("SELECT COUNT(*) FROM anotacao WHERE criado_por='EXEMPLO'") == 0);
+        verifica("limpar exemplo não deixa linha do tempo nem foto órfã",
+                contar("SELECT COUNT(*) FROM acao_atualizacao WHERE ponto_id NOT IN (SELECT id FROM ponto_melhoria)") == 0
+                && contar("SELECT COUNT(*) FROM foto WHERE ponto_id IS NOT NULL AND ponto_id NOT IN (SELECT id FROM ponto_melhoria)") == 0);
         verifica("import real sobrevive à limpeza",
                 contar("SELECT COUNT(*) FROM agencia WHERE prefixo='7777'") == 1);
 

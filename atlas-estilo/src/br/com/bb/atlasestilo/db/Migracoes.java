@@ -51,6 +51,18 @@ public final class Migracoes {
         { "foto", "momento",  "TEXT" },
     };
 
+    /**
+     * Índices sobre colunas que só existem depois das migrações (por isso não
+     * ficam no schema.sql, que roda antes delas num banco antigo).
+     */
+    private static final String[] INDICES = {
+        "CREATE INDEX IF NOT EXISTS idx_foto_visita ON foto(visita_id)",
+        "CREATE INDEX IF NOT EXISTS idx_foto_ponto ON foto(ponto_id)",
+        "CREATE INDEX IF NOT EXISTS idx_ponto_status ON ponto_melhoria(status, previsao)",
+        "CREATE INDEX IF NOT EXISTS idx_ponto_visita ON ponto_melhoria(visita_id)",
+        "CREATE INDEX IF NOT EXISTS idx_acao_atu_tipo ON acao_atualizacao(ponto_id, tipo)",
+    };
+
     public static void aplicar() throws SQLException {
         try (Connection c = Db.conexao(); Statement st = c.createStatement()) {
             String tabelaAtual = null;
@@ -64,6 +76,7 @@ public final class Migracoes {
                 st.executeUpdate("ALTER TABLE " + col[0] + " ADD COLUMN " + col[1] + " " + col[2]);
                 existentes.add(col[1].toLowerCase());
             }
+            for (String idx : INDICES) st.executeUpdate(idx);
         }
     }
 
