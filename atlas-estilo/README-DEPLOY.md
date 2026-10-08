@@ -12,6 +12,11 @@ Stack: Java 8 · JSP/Servlets puros · SQLite (WAR) · Tomcat 8.5 (Windows x86) 
 SSO OAuth2 do BB · front-end “dashboard” (sidebar navy + dourado, claro/escuro,
 responsivo até celular).
 
+> **Vai dar manutenção com ajuda de uma IA (ou é uma IA lendo isto)?** Comece por
+> [`CONTEXTO-PARA-IAS.md`](CONTEXTO-PARA-IAS.md): explica o projeto inteiro
+> (regras inegociáveis, modelo de dados, API, front-end, build, deploy com o
+> SSO, receitas e armadilhas) e foi conferido contra o código.
+
 ## Perfis
 
 | Perfil | Quem | O que vê |
