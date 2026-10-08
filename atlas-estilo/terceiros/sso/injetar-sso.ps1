@@ -1,21 +1,20 @@
 <#
 .SYNOPSIS
-  Completa o atlasestilo-sem-sso.war (ou atlasestilo.war) com o SSO do BB copiado
-  de uma ferramenta já implantada no servidor (boaspraticas) — sem precisar de JDK.
+  OPCIONAL: troca a implementação própria do SSO que já vem no atlasestilo.war pelos
+  binários oficiais do BB copiados de uma ferramenta já implantada (boaspraticas) — sem JDK.
 
 .DESCRIPTION
-  O WAR de produção sai do build com o FilterOauth2 declarado no web.xml, mas sem
-  os quatro artefatos do SSO, que não ficam no repositório:
+  O WAR de produção já sai do build pronto (FilterOauth2/Usuario próprios + oauth.properties).
+  Se preferir a classe oficial do BB, este script lê da webapp de origem e grava dentro do WAR:
     WEB-INF/classes/br/com/bb/sso/filter/FilterOauth2.class
     WEB-INF/classes/br/com/bb/sso/bean/Usuario.class
     WEB-INF/lib/json-*.jar
     WEB-INF/classes/oauth.properties   (com o client_secret; redirect_uri trocado para /atlasestilo)
-  Este script os lê da webapp de origem e grava dentro do WAR, salvando o resultado
-  como atlasestilo.war ao lado. Usa só .NET (System.IO.Compression): Windows Server
-  2012+ / PowerShell 3+.
+  salvando o resultado como atlasestilo.war ao lado. Usa só .NET (System.IO.Compression):
+  Windows Server 2012+ / PowerShell 3+.
 
 .PARAMETER War
-  WAR a completar. Padrão: atlasestilo-sem-sso.war ou atlasestilo.war na pasta atual ou em dist\.
+  WAR a completar. Padrão: atlasestilo.war ou atlasestilo-sem-sso.war na pasta atual ou em dist\.
 
 .PARAMETER Origem
   Pasta da webapp de onde copiar o SSO. Padrão: <Tomcat>\webapps\boaspraticas (ou dashjunho),
@@ -26,7 +25,7 @@
 
 .EXAMPLE
   powershell -ExecutionPolicy Bypass -File injetar-sso.ps1
-  powershell -ExecutionPolicy Bypass -File injetar-sso.ps1 -War C:\temp\atlasestilo-sem-sso.war -Origem "C:\Program Files (x86)\Apache Software Foundation\Tomcat 8.5\webapps\boaspraticas"
+  powershell -ExecutionPolicy Bypass -File injetar-sso.ps1 -War C:\temp\atlasestilo.war -Origem "C:\Program Files (x86)\Apache Software Foundation\Tomcat 8.5\webapps\boaspraticas"
 #>
 param(
   [string]$War = "",
@@ -39,10 +38,10 @@ Add-Type -AssemblyName System.IO.Compression
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 
 function Achar-War {
-  $candidatos = @($War, ".\atlasestilo-sem-sso.war", ".\atlasestilo.war", ".\dist\atlasestilo-sem-sso.war", ".\dist\atlasestilo.war",
-                  "..\..\dist\atlasestilo-sem-sso.war", "..\..\dist\atlasestilo.war")
+  $candidatos = @($War, ".\atlasestilo.war", ".\atlasestilo-sem-sso.war", ".\dist\atlasestilo.war", ".\dist\atlasestilo-sem-sso.war",
+                  "..\..\dist\atlasestilo.war", "..\..\dist\atlasestilo-sem-sso.war")
   foreach ($c in $candidatos) { if ($c -and (Test-Path $c)) { return (Resolve-Path $c).Path } }
-  throw "Nao achei o WAR. Informe -War <caminho\atlasestilo-sem-sso.war>."
+  throw "Nao achei o WAR. Informe -War <caminho\atlasestilo.war>."
 }
 
 function Achar-Origem {
@@ -101,7 +100,7 @@ try {
   $web = $zip.GetEntry("WEB-INF/web.xml")
   if (-not $web) { throw "WAR sem WEB-INF/web.xml" }
   $sr = New-Object System.IO.StreamReader($web.Open()); $xml = $sr.ReadToEnd(); $sr.Close()
-  if ($xml -notmatch "br\.com\.bb\.sso\.filter\.FilterOauth2") { throw "O web.xml deste WAR nao declara o FilterOauth2 (e o WAR dev?). Use o atlasestilo-sem-sso.war de producao." }
+  if ($xml -notmatch "br\.com\.bb\.sso\.filter\.FilterOauth2") { throw "O web.xml deste WAR nao declara o FilterOauth2 (e o WAR dev?). Use o atlasestilo.war de producao." }
   foreach ($i in $itens) {
     $antiga = $zip.GetEntry($i.entrada); if ($antiga) { $antiga.Delete() }
     [System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile($zip, $i.arquivo, $i.entrada, [System.IO.Compression.CompressionLevel]::Optimal) | Out-Null

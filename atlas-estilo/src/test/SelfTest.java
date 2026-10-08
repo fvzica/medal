@@ -211,6 +211,9 @@ public final class SelfTest {
         // ------------------------------------------- fontes CSV da pasta
         testarFontes(dir, master, agora);
 
+        // ------------------------------------------- SSO próprio (OAuth2)
+        testarSso();
+
         // limpar exemplo remove também as anotações gerais do gerador
         br.com.bb.atlasestilo.dao.ConfigDao.limparExemplo();
         verifica("limpar exemplo zera Conexão EXEMPLO",
@@ -228,6 +231,104 @@ public final class SelfTest {
                 contar("SELECT COUNT(*) FROM agencia WHERE prefixo='7777'") == 1);
 
         System.out.println("SelfTest OK — " + verificacoes + " verificações.");
+    }
+
+    // ------------------------------------------------- SSO próprio (OAuth2)
+
+    @SuppressWarnings("unchecked")
+    private static void testarSso() throws Exception {
+        // JsonLeve: o leitor das respostas do servidor OAuth2
+        java.util.Map<String, Object> j = br.com.bb.sso.util.JsonLeve.lerObjeto(
+                "{\"access_token\":\"abc\",\"expires_in\":3600,\"ok\":true,\"nada\":null,"
+                + "\"lista\":[1,2.5,\"x\"],\"user\":{\"uid\":\"f3548926\",\"nome\":\"Jo\\u00e3o \\\"Z\\\"\"}}");
+        verifica("JsonLeve lê objeto com todos os tipos",
+                "abc".equals(j.get("access_token")) && Long.valueOf(3600).equals(j.get("expires_in"))
+                && Boolean.TRUE.equals(j.get("ok")) && j.containsKey("nada") && j.get("nada") == null
+                && ((List<?>) j.get("lista")).size() == 3 && Double.valueOf(2.5).equals(((List<?>) j.get("lista")).get(1)));
+        java.util.Map<String, Object> user = (java.util.Map<String, Object>) j.get("user");
+        verifica("JsonLeve decodifica escapes e \\u", "João \"Z\"".equals(user.get("nome")));
+        boolean falhou = false;
+        try { br.com.bb.sso.util.JsonLeve.lerObjeto("{\"a\":1,}"); } catch (IllegalArgumentException e) { falhou = true; }
+        verifica("JsonLeve rejeita JSON malformado", falhou);
+        falhou = false;
+        try { br.com.bb.sso.util.JsonLeve.lerObjeto("[1,2]"); } catch (IllegalArgumentException e) { falhou = true; }
+        verifica("JsonLeve exige objeto na raiz quando pedido", falhou);
+
+        // Usuario: claims no formato das ferramentas do BB
+        java.util.Map<String, Object> c1 = new java.util.LinkedHashMap<>();
+        c1.put("chaveUsuario", "f3548926"); c1.put("nomeUsuario", "Felipe Teste");
+        c1.put("prefixo", 9007L); c1.put("nomeComissao", "GERENTE");
+        br.com.bb.sso.bean.Usuario u1 = new br.com.bb.sso.bean.Usuario(c1);
+        verifica("Usuario: claims planas, matrícula em maiúsculas",
+                "F3548926".equals(u1.getChaveUsuario()) && "Felipe Teste".equals(u1.getNomeUsuario())
+                && "9007".equals(u1.getPrefixo()) && "GERENTE".equals(u1.getNomeComissao()));
+        // claims OIDC genéricas e aninhadas
+        java.util.Map<String, Object> dep = new java.util.LinkedHashMap<>();
+        dep.put("prefixo", "9101.0"); dep.put("nome", "Estilo SP");
+        java.util.Map<String, Object> c2 = new java.util.LinkedHashMap<>();
+        c2.put("sub", "f0000002"); c2.put("given_name", "Ana"); c2.put("family_name", "Souza");
+        c2.put("dependencia", dep); c2.put("cargo", "ASSISTENTE");
+        br.com.bb.sso.bean.Usuario u2 = new br.com.bb.sso.bean.Usuario(c2);
+        verifica("Usuario: sub, given_name+family_name e dependencia.prefixo",
+                "F0000002".equals(u2.getChaveUsuario()) && "Ana Souza".equals(u2.getNomeUsuario())
+                && "9101".equals(u2.getPrefixo()) && "ASSISTENTE".equals(u2.getCargo())
+                && "Estilo SP".equals(u2.get("dependencia.nome")));
+        verifica("Usuario: busca de claim ignora maiúsculas", "f0000002".equals(u2.get("SUB")));
+        verifica("Usuario: sem matrícula devolve null",
+                new br.com.bb.sso.bean.Usuario(new java.util.LinkedHashMap<String, Object>()).getChaveUsuario() == null);
+        java.lang.reflect.Method montar = Sessao.class.getDeclaredMethod("montar", Object.class);
+        montar.setAccessible(true);
+        Sessao viaBean = (Sessao) montar.invoke(null, (Object) u1);
+        verifica("Sessao.montar lê o Usuario próprio por reflexão",
+                viaBean != null && viaBean.master() && "9007".equals(viaBean.prefixo) && "Felipe Teste".equals(viaBean.nome));
+        java.util.Map<String, String> cfgClaims = new java.util.LinkedHashMap<>();
+        cfgClaims.put("claim.matricula", "funcional");
+        br.com.bb.sso.bean.Usuario.configurarMapeamento(cfgClaims);
+        java.util.Map<String, Object> c3 = new java.util.LinkedHashMap<>();
+        c3.put("funcional", "f1"); c3.put("uid", "f2");
+        verifica("Usuario: claim.matricula do properties prevalece",
+                "F1".equals(new br.com.bb.sso.bean.Usuario(c3).getChaveUsuario()));
+        cfgClaims.put("claim.matricula", "chaveUsuario,chave,matricula,uid,username,preferred_username,sub,login,user_id");
+        br.com.bb.sso.bean.Usuario.configurarMapeamento(cfgClaims);
+
+        // FilterOauth2: partes puras do fluxo
+        java.util.Map<String, String> cfg = new java.util.LinkedHashMap<>();
+        cfg.put("client_id", "SUPERPF1"); cfg.put("client_secret", "x");
+        cfg.put("redirect_uri", "https://super-pf1.intranet.bb.com.br/atlasestilo");
+        cfg.put("login_endpoint", "https://login.intranet.bb.com.br"); cfg.put("scopes", "profile,bbprofile,bbrole");
+        String url = br.com.bb.sso.filter.FilterOauth2.urlAutorizacao(
+                "https://login.intranet.bb.com.br/sso/oauth2/authorize", cfg, " ", "abc123");
+        verifica("FilterOauth2: URL de autorização",
+                url.startsWith("https://login.intranet.bb.com.br/sso/oauth2/authorize?response_type=code&client_id=SUPERPF1")
+                && url.contains("&redirect_uri=https%3A%2F%2Fsuper-pf1.intranet.bb.com.br%2Fatlasestilo")
+                && url.contains("&scope=profile+bbprofile+bbrole") && url.endsWith("&state=abc123"));
+        verifica("FilterOauth2: configuração válida", br.com.bb.sso.filter.FilterOauth2.validar(cfg) == null);
+        cfg.put("client_secret", "TROQUE_AQUI_PELO_SEGREDO");
+        verifica("FilterOauth2: segredo de exemplo é recusado", br.com.bb.sso.filter.FilterOauth2.validar(cfg) != null);
+        cfg.remove("redirect_uri");
+        verifica("FilterOauth2: chave obrigatória ausente é apontada",
+                String.valueOf(br.com.bb.sso.filter.FilterOauth2.validar(cfg)).contains("redirect_uri"));
+        String[] padrao = br.com.bb.sso.filter.FilterOauth2.padrao("https://login.intranet.bb.com.br");
+        verifica("FilterOauth2: endpoints padrão OpenAM e candidatos de discovery",
+                padrao[0].endsWith("/sso/oauth2/authorize") && padrao[1].endsWith("/sso/oauth2/access_token")
+                && padrao[2].endsWith("/sso/oauth2/userinfo")
+                && br.com.bb.sso.filter.FilterOauth2.candidatosDescoberta("https://x").get(0)
+                        .endsWith("/sso/oauth2/.well-known/openid-configuration"));
+        String payload = java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(
+                "{\"sub\":\"f3548926\",\"prefixo\":\"9007\"}".getBytes(StandardCharsets.UTF_8));
+        verifica("FilterOauth2: payload do JWT (id_token) é lido",
+                "f3548926".equals(br.com.bb.sso.filter.FilterOauth2.decodificarJwt("eyJhbGciOiJub25lIn0." + payload + ".sig").get("sub")));
+        System.setProperty("oauth.client_secret", "via-system-property");
+        try {
+            java.util.Map<String, String> lida = br.com.bb.sso.filter.FilterOauth2.carregarConfiguracao(null);
+            verifica("FilterOauth2: system property sobrepõe o oauth.properties",
+                    "via-system-property".equals(lida.get("client_secret")));
+        } finally {
+            System.clearProperty("oauth.client_secret");
+        }
+        verifica("FilterOauth2: state aleatório de 32 hex, diferente a cada vez",
+                br.com.bb.sso.filter.FilterOauth2.novoState().matches("[0-9a-f]{32}")
+                && !br.com.bb.sso.filter.FilterOauth2.novoState().equals(br.com.bb.sso.filter.FilterOauth2.novoState()));
     }
 
     private static void verifica(String nome, boolean ok) {

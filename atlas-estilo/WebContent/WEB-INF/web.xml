@@ -56,8 +56,10 @@
   </context-param>
   <!-- DEV-SIMULAR-FIM -->
 
-  <!-- SSO-INICIO — 1º filtro: SSO OAuth2 do BB (classes copiadas de uma
-       ferramenta existente para terceiros/sso; ver README-DEPLOY). -->
+  <!-- SSO-INICIO — 1º filtro: login OAuth2 no SSO do BB. Implementação própria
+       em src/br/com/bb/sso (mesmo nome e contrato da classe oficial do BB, que
+       pode sobrescrevê-la); configuração em WEB-INF/classes/oauth.properties.
+       Ver README-DEPLOY. -->
   <filter>
     <filter-name>FilterOauth2</filter-name>
     <filter-class>br.com.bb.sso.filter.FilterOauth2</filter-class>

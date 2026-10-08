@@ -1,8 +1,10 @@
 @echo off
-rem Completa o atlasestilo-sem-sso.war com o SSO do BB (FilterOauth2, Usuario,
-rem json-*.jar e oauth.properties) copiados do boaspraticas ja implantado neste
-rem servidor, gerando atlasestilo.war ao lado. Nao precisa de JDK.
-rem Uso:  injetar-sso.bat [caminho\atlasestilo-sem-sso.war] [pasta\webapps\boaspraticas]
+rem OPCIONAL: troca a implementacao propria do SSO que ja vem no atlasestilo.war
+rem pelos binarios OFICIAIS do BB (FilterOauth2, Usuario, json-*.jar e
+rem oauth.properties) copiados do boaspraticas ja implantado neste servidor,
+rem gerando atlasestilo.war ao lado. Nao precisa de JDK. Nao e necessario para o
+rem WAR funcionar: o build ja gera o WAR pronto.
+rem Uso:  injetar-sso.bat [caminho\atlasestilo.war] [pasta\webapps\boaspraticas]
 setlocal
 set "AQUI=%~dp0"
 set "WAR=%~1"

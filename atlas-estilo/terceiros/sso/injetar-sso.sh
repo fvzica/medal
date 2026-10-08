@@ -1,18 +1,20 @@
 #!/usr/bin/env bash
-# Completa o atlasestilo-sem-sso.war (ou atlasestilo.war) com o SSO do BB a partir
-# de uma webapp já implantada (…/webapps/boaspraticas) ou de uma pasta com os
-# arquivos soltos (br/com/bb/sso/…, json-*.jar, oauth.properties).
+# OPCIONAL: troca a implementação própria do SSO que já vem no atlasestilo.war
+# pelos binários OFICIAIS do BB (FilterOauth2, Usuario, json-*.jar e o
+# oauth.properties) copiados de uma webapp já implantada (…/webapps/boaspraticas)
+# ou de uma pasta com os arquivos soltos (br/com/bb/sso/…, json-*.jar, oauth.properties).
+# Não é necessário para o WAR funcionar: ./build.sh já gera o WAR pronto.
 # Uso: terceiros/sso/injetar-sso.sh [war] [pasta-de-origem] [redirect_uri]
-# Resultado: atlasestilo.war ao lado do WAR de entrada.
+# Resultado: atlasestilo.war ao lado do WAR de entrada (ou .sem-sso.bak do original).
 set -euo pipefail
 AQUI="$(cd "$(dirname "$0")" && pwd)"
 WAR="${1:-}"
 ORIGEM="${2:-$AQUI}"
 REDIRECT="${3:-https://super-pf1.intranet.bb.com.br/atlasestilo}"
 if [ -z "$WAR" ]; then
-  for c in "$AQUI/../../dist/atlasestilo-sem-sso.war" "$AQUI/../../dist/atlasestilo.war"; do [ -f "$c" ] && { WAR="$c"; break; }; done
+  for c in "$AQUI/../../dist/atlasestilo.war" "$AQUI/../../dist/atlasestilo-sem-sso.war"; do [ -f "$c" ] && { WAR="$c"; break; }; done
 fi
-[ -n "$WAR" ] && [ -f "$WAR" ] || { echo "WAR não encontrado. Uso: $0 <atlasestilo-sem-sso.war> [origem]"; exit 1; }
+[ -n "$WAR" ] && [ -f "$WAR" ] || { echo "WAR não encontrado. Uso: $0 <atlasestilo.war> [origem]"; exit 1; }
 
 # aceita layout de webapp (WEB-INF/classes/...) ou solto (br/..., json-*.jar, oauth.properties)
 if [ -f "$ORIGEM/WEB-INF/classes/br/com/bb/sso/filter/FilterOauth2.class" ]; then
@@ -27,7 +29,7 @@ JSON="$(ls "$LIB"/json-*.jar 2>/dev/null | head -1 || true)"
 [ -n "$JSON" ] || { echo "Ausente: $LIB/json-*.jar"; exit 1; }
 
 unzip -p "$WAR" WEB-INF/web.xml | grep -q "br.com.bb.sso.filter.FilterOauth2" \
-  || { echo "O web.xml deste WAR não declara o FilterOauth2 (WAR dev?). Use dist/atlasestilo-sem-sso.war."; exit 1; }
+  || { echo "O web.xml deste WAR não declara o FilterOauth2 (WAR dev?). Use dist/atlasestilo.war."; exit 1; }
 
 DESTINO="$(dirname "$WAR")/atlasestilo.war"
 if [ "$DESTINO" != "$WAR" ]; then cp "$WAR" "$DESTINO"; else cp "$WAR" "$WAR.sem-sso.bak"; fi

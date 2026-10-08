@@ -1,11 +1,43 @@
 # SSO OAuth2 — Banco do Brasil (mesmos valores das demais ferramentas SUPER PF1;
 # só o redirect_uri muda, apontando para o contexto desta ferramenta).
+# Copie para terceiros/sso/oauth.properties (ignorado pelo git), troque o
+# client_secret e rode ./build.sh: o WAR sai pronto.
 # IMPORTANTE: https://super-pf1.intranet.bb.com.br/atlasestilo precisa estar
 # registrado para o client_id SUPERPF1 no servidor OAuth2 do BB — senão o login
 # volta com redirect_uri_mismatch. Valor idêntico, sem barra no final.
+#
+# Qualquer chave pode ser sobreposta sem reabrir o WAR: variável de ambiente
+# OAUTH_<CHAVE> (ex.: OAUTH_CLIENT_SECRET) ou system property -Doauth.<chave>;
+# OAUTH_PROPERTIES / -Doauth.properties.path aponta um arquivo externo inteiro.
 client_id=SUPERPF1
 client_secret=TROQUE_AQUI_PELO_SEGREDO_DO_CLIENT_SUPERPF1
 redirect_uri=https://super-pf1.intranet.bb.com.br/atlasestilo
 login_endpoint=https://login.intranet.bb.com.br
 cookie_sso=BBSSOToken
 scopes=profile,bbprofile,bbrole
+
+# ---- Opcionais (só se o padrão não servir) -----------------------------------
+# Endpoints: por padrão são descobertos em <login_endpoint>/…/.well-known/openid-configuration
+# e, se a descoberta falhar, assumem o layout OpenAM:
+#   <login_endpoint>/sso/oauth2/authorize | /access_token | /userinfo | /tokeninfo
+# Para fixar manualmente (desliga a descoberta quando authorize e token estão definidos):
+#authorize_endpoint=https://login.intranet.bb.com.br/sso/oauth2/authorize
+#token_endpoint=https://login.intranet.bb.com.br/sso/oauth2/access_token
+#userinfo_endpoint=https://login.intranet.bb.com.br/sso/oauth2/userinfo
+#tokeninfo_endpoint=https://login.intranet.bb.com.br/sso/oauth2/tokeninfo
+#descoberta=false
+# Separador dos scopes na URL de autorização (padrão: espaço, como na RFC 6749)
+#scopes_separador=,
+# Tempo limite das chamadas ao SSO, em ms (padrão 10000)
+#timeout_ms=10000
+# true = as chamadas do servidor ao SSO passam pelo proxy configurado na JVM (padrão: direto)
+#usar_proxy=false
+# true = não valida o certificado TLS do SSO (só como medida provisória na intranet)
+#tls_ignorar_certificado=false
+# Nomes de claim aceitos para cada campo do usuário, em ordem (padrões no Usuario.java)
+#claim.matricula=chaveUsuario,uid,sub
+#claim.nome=nomeUsuario,name
+#claim.prefixo=prefixo,dependencia.prefixo
+#claim.comissao=nomeComissao,cargo
+#claim.nomeGuerra=nomeGuerra
+#claim.email=email

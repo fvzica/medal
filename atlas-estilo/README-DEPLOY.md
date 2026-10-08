@@ -40,48 +40,66 @@ responde 403 para foto restrita. O front-end apenas esconde o que já não vem
 ## Build
 
 ```
-./build.sh        # produção -> dist/atlasestilo.war (com SSO) ou dist/atlasestilo-sem-sso.war
+./build.sh        # produção -> dist/atlasestilo.war (com o login OAuth2 do BB)
 ./build.sh dev    # teste local SEM SSO (usuário simulado Master) -> dist/atlasestilo-dev.war
 ```
 
-Compila com `--release 8`, roda o SelfTest (181 verificações, sem rede —
+Compila com `--release 8`, roda o SelfTest (199 verificações, sem rede —
 inclui o que cada perfil pode ou não ver, prazos por dia-calendário,
-cadência, conferência, migrações) e empacota. O WAR leva o driver SQLite em
+cadência, conferência, migrações e as partes puras do login OAuth2) e empacota. O WAR leva o driver SQLite em
 `WEB-INF/lib`. No WAR **dev**, `?perfil=COLEGA`, `?perfil=MODERADOR` ou
 `?perfil=MASTER` na URL troca o usuário simulado (fica na sessão) para
 conferir a visão de cada um.
 
-### WAR de produção com o SSO do BB
+### Login OAuth2 no SSO do BB (implementação própria, dentro do WAR)
 
-O login é o `FilterOauth2` do BB (primeiro filtro do `web.xml`), que põe o
-`Usuario` na sessão; o `AuthFilter` lê esse objeto por reflexão e monta o
-perfil. Os quatro artefatos do SSO são **binários do BB e um segredo**, e por
-isso **não ficam no repositório** (ver `terceiros/sso/LEIAME.txt`):
+O primeiro filtro do `web.xml` é `br.com.bb.sso.filter.FilterOauth2`, com o
+**mesmo nome e contrato** da classe oficial do BB: autentica no SSO e põe um
+`br.com.bb.sso.bean.Usuario` na sessão (atributo `usuario`); o `AuthFilter`
+lê esse objeto por reflexão e monta o perfil. A diferença é que aqui o filtro
+e o bean são **código do projeto** (`src/br/com/bb/sso`), compilados no WAR:
+não dependem de binários externos nem do `json-*.jar`.
+
+Como funciona (`authorization code` padrão):
+
+1. Sem usuário na sessão, redireciona ao endpoint de autorização do
+   `login_endpoint` com `client_id`, `redirect_uri`, `scope` e um `state`
+   aleatório guardado na sessão. Os endpoints são **descobertos** em
+   `<login_endpoint>/…/.well-known/openid-configuration`; se a descoberta
+   falhar, assume o layout OpenAM (`/sso/oauth2/authorize`, `/access_token`,
+   `/userinfo`); e tudo pode ser fixado no `oauth.properties`.
+2. No retorno (`?code&state`), confere o `state`, troca o código por token
+   (Basic auth; se o servidor recusar, repete com o segredo no corpo) e lê as
+   claims no `userinfo` (e no `id_token`, se vier).
+3. Cria uma sessão nova com o `Usuario` e volta à página pedida originalmente.
+   Pedidos de API (`/api/`, `/foto/`, cabeçalho `X-Atlas`) sem sessão recebem
+   **401 em JSON** em vez de redirecionamento.
+4. Qualquer falha (TLS, endpoint inexistente, `redirect_uri_mismatch`,
+   `invalid_client`, claims sem matrícula) vira uma **página de erro em
+   português** dizendo o passo, a resposta do SSO e o que conferir. Logado,
+   `/atlasestilo/sso/diagnostico` mostra a configuração em uso (sem o segredo).
+
+Configuração em `WEB-INF/classes/oauth.properties` (modelo comentado em
+`terceiros/sso/oauth.properties.exemplo`). Para gerar o **WAR pronto**:
 
 ```
-terceiros/sso/br/com/bb/sso/filter/FilterOauth2.class
-terceiros/sso/br/com/bb/sso/bean/Usuario.class
-terceiros/sso/json-20230618.jar
-terceiros/sso/oauth.properties          (modelo: oauth.properties.exemplo)
+cp terceiros/sso/oauth.properties.exemplo terceiros/sso/oauth.properties
+#   -> edite client_secret (o resto já vem certo para o /atlasestilo)
+./build.sh                                  # dist/atlasestilo.war, pronto para webapps\
 ```
 
-Dois caminhos para ter o WAR completo:
+`terceiros/sso/oauth.properties` e `dist/atlasestilo.war` são **ignorados
+pelo git** porque carregam o segredo. Sem o arquivo, o build usa o modelo
+(segredo `TROQUE_AQUI…`) e o filtro mostra isso na tela. Qualquer chave pode
+ser sobreposta sem reabrir o WAR: variável de ambiente `OAUTH_<CHAVE>` (ex.:
+`OAUTH_CLIENT_SECRET` no serviço do Tomcat), `-Doauth.<chave>` ou um arquivo
+externo apontado por `OAUTH_PROPERTIES`.
 
-1. **Na máquina de build**: copie os quatro arquivos de uma ferramenta já
-   implantada (`<Tomcat>\webapps\boaspraticas\WEB-INF\classes\br\com\bb\sso\…`,
-   `…\WEB-INF\lib\json-20230618.jar`, `…\WEB-INF\classes\oauth.properties`,
-   trocando o `redirect_uri` para `https://super-pf1.intranet.bb.com.br/atlasestilo`)
-   para `terceiros/sso/` e rode `./build.sh`. O build confere o conteúdo do
-   WAR e só então o chama `dist/atlasestilo.war`.
-2. **No próprio servidor, sem JDK**: pegue `dist/atlasestilo-sem-sso.war` e rode
-   `terceiros\sso\injetar-sso.bat` (PowerShell + .NET). Ele acha o
-   `boaspraticas` em `webapps\`, copia os quatro artefatos para dentro do WAR
-   (ajustando o `redirect_uri`) e grava `atlasestilo.war` ao lado, pronto para
-   `webapps\`. Em Linux/macOS: `terceiros/sso/injetar-sso.sh`.
-
-O `atlasestilo-sem-sso.war` **não sobe** no Tomcat (o filtro declarado não
-existe) — é só a matéria-prima do passo 2. Ao atualizar o WAR em produção,
-basta repetir o passo 2 com o novo `-sem-sso.war`.
+**Opcional — usar os binários oficiais do BB.** Se preferir a classe original,
+copie `FilterOauth2.class`, `Usuario.class` e `json-*.jar` de uma ferramenta
+já implantada (`boaspraticas`) para `terceiros/sso/`: o `./build.sh` passa a
+embuti-los no lugar da implementação própria. No servidor, sem JDK,
+`terceiros\sso\injetar-sso.bat` faz a mesma troca dentro de um WAR já gerado.
 
 > O `client_secret` do client SUPERPF1 esteve versionado neste repositório
 > (público) em commits anteriores, dentro de `oauth.properties` e dos WARs.
@@ -96,12 +114,18 @@ exige mexer no banco.
 
 ### Antes do deploy de produção (uma vez)
 
-1. **Ter o WAR com SSO** (seção acima: `terceiros/sso/` + `./build.sh`, ou
-   `injetar-sso.bat` no servidor).
+1. **Ter o WAR com o segredo** (seção acima: `terceiros/sso/oauth.properties`
+   + `./build.sh`, ou `OAUTH_CLIENT_SECRET` no ambiente do serviço do Tomcat).
 2. **Registrar o redirect_uri** `https://super-pf1.intranet.bb.com.br/atlasestilo`
    para o client_id `SUPERPF1` no servidor OAuth2 do BB (idêntico, sem barra
-   final) — senão o login devolve `redirect_uri_mismatch`.
-3. `atlas.maps.ativo` já vem `false` no `web.xml` (a intranet não alcança o
+   final) — senão o login devolve `redirect_uri_mismatch`. Acesse a ferramenta
+   exatamente por esse endereço: outro host/porta cria outra sessão e o
+   `state` do retorno não confere.
+3. **Certificado do SSO**: o Tomcat fala com `login.intranet.bb.com.br` pelo
+   servidor. Se a JRE não confiar no certificado, a página de erro do login
+   mostra o `keytool -importcert` a rodar (ou, provisoriamente,
+   `tls_ignorar_certificado=true` no `oauth.properties`).
+4. `atlas.maps.ativo` já vem `false` no `web.xml` (a intranet não alcança o
    Google); a fachada usa foto do Admin ou o link de embed colado pelo Master.
    Erros inesperados caem em `erro.jsp` (JSON para `/api/*`), nunca na página
    do Tomcat.
